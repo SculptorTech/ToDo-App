@@ -1,394 +1,617 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { getTasks, saveTasks } from '../utils/storage';
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { getTasks, saveTasks } from "../utils/storage";
 
-export default function AddTaskScreen() {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('Medium'); // Low, Medium, High
-  const [date, setDate] = useState(() => {
-    // Set initial date to next hour
-    const now = new Date();
-    now.setHours(now.getHours() + 1);
-    now.setMinutes(0);
-    return now;
-  });
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState('date'); // 'date' or 'time'
+export default function TaskListScreen() {
+  const [tasks, setTasks] = useState([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all"); // all | pending | completed
+  const [refreshing, setRefreshing] = useState(false);
 
-  const router = useRouter();
+  const navigation = useNavigation();
 
-  const addTask = async () => {
-    if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a task title');
-      return;
+  // Load tasks on initial mount
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  // Auto-refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("Screen focused, refreshing tasks...");
+      loadTasks();
+    }, []),
+  );
+
+  const loadTasks = async () => {
+    try {
+      const stored = await getTasks();
+      console.log("Loaded tasks:", stored?.length || 0);
+      setTasks(stored || []);
+    } catch (error) {
+      console.error("Error loading tasks:", error);
+      setTasks([]);
     }
+  };
 
-    // Check if due date is in the past
-    if (date < new Date()) {
-      Alert.alert(
-        'Past Due Date',
-        'The due date is in the past. Do you want to continue?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Continue', onPress: actuallyAddTask }
-        ]
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTasks();
+    setRefreshing(false);
+  };
+
+  const toggleTaskCompletion = async (id) => {
+    const updated = tasks.map((t) =>
+      t.id === id
+        ? {
+            ...t,
+            completed: !t.completed,
+            completedAt: !t.completed ? new Date().toISOString() : null, // Set when completing, remove when uncompleting
+          }
+        : t,
+    );
+    setTasks(updated);
+    await saveTasks(updated);
+  };
+  const deleteTask = async (id) => {
+    const updated = tasks.filter((t) => t.id !== id);
+    setTasks(updated);
+    await saveTasks(updated);
+  };
+
+  const logout = () => {
+    navigation.replace("Login"); // NOT router.replace
+  };
+
+  // ===== DYNAMIC FILTERING + SORTING =====
+  const visibleTasks = useMemo(() => {
+    let list = [...tasks];
+
+    // search
+    if (search.trim()) {
+      list = list.filter((t) =>
+        t.title.toLowerCase().includes(search.toLowerCase()),
       );
-    } else {
-      await actuallyAddTask();
     }
-  };
 
-  const actuallyAddTask = async () => {
-    const existing = await getTasks();
+    // filter
+    if (filter === "pending") list = list.filter((t) => !t.completed);
+    if (filter === "completed") list = list.filter((t) => t.completed);
 
-    const newTask = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      description: description.trim(),
-      priority,
-      completed: false,
-      dueDate: date.toISOString(),
-      createdAt: new Date().toISOString(),
-    };
+    // sort: pending first, then completed
+    // within pending: sort by due date
+    // within completed: sort by completion date (most recent first)
+    list.sort((a, b) => {
+      if (!a.completed && b.completed) return -1;
+      if (a.completed && !b.completed) return 1;
 
-    await saveTasks([...existing, newTask]);
-    router.back();
-  };
-
-  const handlePickerChange = (event, selectedDate) => {
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false);
-      setShowTimePicker(false);
-    }
-    
-    if (selectedDate) {
-      if (pickerMode === 'date') {
-        // Keep the time part, update date part
-        const newDate = new Date(date);
-        newDate.setFullYear(selectedDate.getFullYear());
-        newDate.setMonth(selectedDate.getMonth());
-        newDate.setDate(selectedDate.getDate());
-        setDate(newDate);
-      } else {
-        // Keep the date part, update time part
-        const newDate = new Date(date);
-        newDate.setHours(selectedDate.getHours());
-        newDate.setMinutes(selectedDate.getMinutes());
-        newDate.setSeconds(0);
-        setDate(newDate);
+      if (!a.completed && !b.completed) {
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return new Date(a.dueDate) - new Date(b.dueDate);
       }
-    }
-  };
 
-  const showPicker = (mode) => {
-    setPickerMode(mode);
-    if (Platform.OS === 'ios') {
-      setShowDatePicker(true);
-    } else {
-      if (mode === 'date') {
-        setShowDatePicker(true);
-      } else {
-        setShowTimePicker(true);
-      }
-    }
-  };
-
-  const formatDate = (date) => {
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
+      // Both completed - most recent first
+      if (!a.completedAt) return 1;
+      if (!b.completedAt) return -1;
+      return new Date(b.completedAt) - new Date(a.completedAt);
     });
-  };
 
-  const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    });
+    return list;
+  }, [tasks, search, filter]);
+
+  const handleTaskComplete = async (id) => {
+    const task = tasks.find((t) => t.id === id);
+    const updated = tasks.map((t) =>
+      t.id === id
+        ? {
+            ...t,
+            completed: true,
+            completedAt: new Date().toISOString(),
+          }
+        : t,
+    );
+    setTasks(updated);
+    await saveTasks(updated);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>New Task</Text>
-
-      {/* Task Title */}
-      <Text style={styles.label}>Task Title *</Text>
-      <TextInput
-        placeholder="What needs to be done?"
-        style={styles.input}
-        value={title}
-        onChangeText={setTitle}
-        maxLength={100}
-      />
-
-      {/* Description */}
-      <Text style={styles.label}>Description (Optional)</Text>
-      <TextInput
-        placeholder="Add details about this task..."
-        style={[styles.input, styles.textArea]}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        numberOfLines={3}
-        maxLength={500}
-      />
-
-      {/* Priority Selector */}
-      <Text style={styles.label}>Priority</Text>
-      <View style={styles.priorityContainer}>
-        {['Low', 'Medium', 'High'].map((level) => (
-          <TouchableOpacity
-            key={level}
-            style={[
-              styles.priorityButton,
-              priority === level && styles[`priority${level}Active`]
-            ]}
-            onPress={() => setPriority(level)}
-          >
-            <Text style={[
-              styles.priorityText,
-              priority === level && styles.priorityTextActive
-            ]}>
-              {level}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* HEADER */}
+      <View style={styles.header}>
+        <Text style={styles.title}>My Tasks</Text>
+        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Date & Time Selectors */}
-      <Text style={styles.label}>Due Date & Time</Text>
-      
-      <TouchableOpacity 
-        style={styles.selector} 
-        onPress={() => showPicker('date')}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.selectorLabel}>📅 Date</Text>
-        <Text style={styles.selectorText}>{formatDate(date)}</Text>
-      </TouchableOpacity>
+      {/* SEARCH */}
+      <TextInput
+        placeholder="Search tasks..."
+        style={styles.searchInput}
+        value={search}
+        onChangeText={setSearch}
+      />
 
-      <TouchableOpacity 
-        style={styles.selector} 
-        onPress={() => showPicker('time')}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.selectorLabel}>⏰ Time</Text>
-        <Text style={styles.selectorText}>{formatTime(date)}</Text>
-      </TouchableOpacity>
+      {/* FILTERS */}
+      <View style={styles.filters}>
+        <TouchableOpacity
+          onPress={() => setFilter("all")}
+          style={[styles.filterBtn, filter === "all" && styles.filterActive]}
+        >
+          <Text
+            style={[
+              styles.filterText,
+              filter === "all" && styles.filterTextActive,
+            ]}
+          >
+            All
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setFilter("pending")}
+          style={[
+            styles.filterBtn,
+            filter === "pending" && styles.filterActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.filterText,
+              filter === "pending" && styles.filterTextActive,
+            ]}
+          >
+            Pending
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setFilter("completed")}
+          style={[
+            styles.filterBtn,
+            filter === "completed" && styles.filterActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.filterText,
+              filter === "completed" && styles.filterTextActive,
+            ]}
+          >
+            Completed
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Combined DateTimePicker for iOS */}
-      {(showDatePicker && Platform.OS === 'ios') && (
-        <View style={styles.iosPickerContainer}>
-          <DateTimePicker
-            value={date}
-            mode="datetime"
-            display="spinner"
-            onChange={handlePickerChange}
-            style={styles.iosPicker}
+      {/* STATS */}
+      <View style={styles.stats}>
+        <Text style={styles.statText}>
+          📊 Total: {tasks.length} | ✅ Completed:{" "}
+          {tasks.filter((t) => t.completed).length} | ⏳ Pending:{" "}
+          {tasks.filter((t) => !t.completed).length}
+        </Text>
+      </View>
+
+      {/* TASK LIST */}
+      <FlatList
+        data={visibleTasks}
+        keyExtractor={(item) => item.id}
+        // In the FlatList renderItem, change the onEdit prop to this:
+
+        renderItem={({ item }) => (
+          <TaskItem
+            task={item}
+            onToggleComplete={() => handleTaskComplete(item.id)}
+            onDelete={() => deleteTask(item.id)}
+            onEdit={() => navigation.navigate("EditTask", { taskId: item.id })}
           />
-          <View style={styles.iosPickerButtons}>
-            <TouchableOpacity 
-              style={styles.iosPickerButton} 
-              onPress={() => {
-                setShowDatePicker(false);
-                setShowTimePicker(false);
-              }}
-            >
-              <Text style={styles.iosPickerButtonText}>Done</Text>
+        )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.empty}>
+              {filter === "completed"
+                ? "No completed tasks"
+                : filter === "pending"
+                  ? "No pending tasks"
+                  : "No tasks yet"}
+            </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("AddTask")}>
+              {" "}
+              // CHANGE THIS
+              <Text style={styles.addTaskPrompt}>+ Add a new task</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      )}
+        }
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        contentContainerStyle={{ paddingBottom: 120 }}
+        showsVerticalScrollIndicator={false}
+      />
 
-      {/* Android Date Picker */}
-      {showDatePicker && Platform.OS === 'android' && (
-        <DateTimePicker
-          value={date}
-          mode="date"
-          display="default"
-          onChange={handlePickerChange}
-          minimumDate={new Date()}
-        />
-      )}
-
-      {/* Android Time Picker */}
-      {showTimePicker && Platform.OS === 'android' && (
-        <DateTimePicker
-          value={date}
-          mode="time"
-          display="default"
-          onChange={handlePickerChange}
-          is24Hour={false}
-        />
-      )}
-
-      {/* Add Task Button */}
-      <TouchableOpacity 
-        style={[
-          styles.button, 
-          !title.trim() && styles.buttonDisabled
-        ]} 
-        onPress={addTask}
-        disabled={!title.trim()}
+      {/* FAB */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate("AddTask")}
       >
-        <Text style={styles.buttonText}>Add Task</Text>
-      </TouchableOpacity>
-
-      {/* Cancel Button */}
-      <TouchableOpacity 
-        style={styles.cancelButton} 
-        onPress={() => router.back()}
-      >
-        <Text style={styles.cancelButtonText}>Cancel</Text>
+        <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
+// TaskItem component with edit button
+function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
+  const getPriorityColor = () => {
+    switch (task.priority) {
+      case "High":
+        return "#ff6b6b";
+      case "Medium":
+        return "#ffd93d";
+      case "Low":
+        return "#6bcf7f";
+      default:
+        return "#ddd";
+    }
+  };
+
+  return (
+    <View
+      style={[
+        styles.taskContainer,
+        task.completed && styles.taskContainerCompleted,
+      ]}
+    >
+      <View style={styles.taskContent}>
+        {/* CHECKBOX */}
+        <TouchableOpacity
+          onPress={onToggleComplete}
+          style={styles.checkboxContainer}
+          disabled={task.completed}
+        >
+          <View
+            style={[
+              styles.checkbox,
+              task.completed && styles.checkboxChecked,
+              { borderColor: task.completed ? "#4CAF50" : getPriorityColor() },
+            ]}
+          >
+            {task.completed && <Text style={styles.checkmark}>✓</Text>}
+          </View>
+        </TouchableOpacity>
+
+        {/* TASK DETAILS */}
+        <View style={styles.taskDetails}>
+          <View style={styles.taskHeader}>
+            <Text
+              style={[
+                styles.taskTitle,
+                task.completed && styles.taskTitleCompleted,
+              ]}
+            >
+              {task.title}
+            </Text>
+            {task.priority && !task.completed && (
+              <View
+                style={[
+                  styles.priorityBadge,
+                  { backgroundColor: getPriorityColor() + "20" },
+                ]}
+              >
+                <Text
+                  style={[styles.priorityText, { color: getPriorityColor() }]}
+                >
+                  {task.priority}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {task.description && (
+            <Text style={styles.taskDescription} numberOfLines={2}>
+              {task.description}
+            </Text>
+          )}
+
+          <View style={styles.taskFooter}>
+            {task.dueDate && (
+              <Text
+                style={[
+                  styles.dueDate,
+                  task.completed ? styles.dueDateCompleted : {},
+                ]}
+              >
+                📅 {new Date(task.dueDate).toLocaleDateString()}
+              </Text>
+            )}
+
+            {task.completedAt && (
+              <Text style={styles.completedDate}>
+                ✅ {new Date(task.completedAt).toLocaleDateString()}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {/* ACTION BUTTONS */}
+        <View style={styles.actionButtons}>
+          {/* EDIT BUTTON (only for non-completed tasks) */}
+          {!task.completed && (
+            <TouchableOpacity
+              onPress={onEdit}
+              style={styles.editBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.editText}>✏️</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* DELETE BUTTON (only for completed tasks) */}
+          {task.completed && (
+            <TouchableOpacity
+              onPress={onDelete}
+              style={styles.deleteBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.deleteText}>🗑️</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 20, 
-    backgroundColor: '#fff' 
-  },
-  title: { 
-    fontSize: 28, 
-    fontWeight: 'bold', 
-    marginBottom: 30,
-    color: '#1a1a1a'
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: '#e0e0e0',
-    padding: 14,
-    borderRadius: 10,
-    fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  priorityContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  priorityButton: {
+  container: {
     flex: 1,
-    padding: 12,
-    borderRadius: 8,
+    padding: 16,
+    backgroundColor: "#f5f5f5",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#1a1a1a",
+  },
+  logoutBtn: {
+    backgroundColor: "#ffebee",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#ffcdd2",
+  },
+  logoutText: {
+    color: "#d32f2f",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  searchInput: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    marginBottom: 16,
+    fontSize: 16,
+  },
+  filters: {
+    flexDirection: "row",
+    marginBottom: 12,
+    justifyContent: "center",
+  },
+  filterBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: '#e0e0e0',
+    borderColor: "#ddd",
     marginHorizontal: 4,
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
-  priorityLowActive: {
-    backgroundColor: '#e8f5e9',
-    borderColor: '#4CAF50',
+  filterActive: {
+    backgroundColor: "#1a1a1a",
+    borderColor: "#1a1a1a",
   },
-  priorityMediumActive: {
-    backgroundColor: '#fff8e1',
-    borderColor: '#ff9800',
+  filterText: {
+    fontSize: 14,
+    color: "#666",
+    fontWeight: "500",
   },
-  priorityHighActive: {
-    backgroundColor: '#ffebee',
-    borderColor: '#f44336',
+  filterTextActive: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  stats: {
+    backgroundColor: "#e3f2fd",
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  statText: {
+    fontSize: 12,
+    color: "#1976d2",
+    fontWeight: "500",
+  },
+  taskContainer: {
+    backgroundColor: "#fff",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: "#f0f0f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  taskContainerCompleted: {
+    backgroundColor: "#f8f9fa",
+    borderColor: "#e9ecef",
+    borderLeftWidth: 4,
+    borderLeftColor: "#4CAF50",
+  },
+  taskContent: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  checkboxContainer: {
+    marginRight: 16,
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  checkboxChecked: {
+    backgroundColor: "#4CAF50",
+    borderColor: "#4CAF50",
+  },
+  checkmark: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  taskDetails: {
+    flex: 1,
+  },
+  taskHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+    flexWrap: "wrap",
+  },
+  taskTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1a1a1a",
+    marginRight: 8,
+    flex: 1,
+  },
+  taskTitleCompleted: {
+    textDecorationLine: "line-through",
+    color: "#888",
+  },
+  priorityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
   priorityText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  taskDescription: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
+    color: "#666",
+    marginBottom: 8,
+    lineHeight: 18,
   },
-  priorityTextActive: {
-    color: '#333',
-    fontWeight: '600',
+  taskFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
   },
-  selector: {
-    borderWidth: 1.5,
-    borderColor: '#e0e0e0',
-    padding: 16,
-    borderRadius: 10,
-    marginBottom: 12,
-    backgroundColor: '#f9f9f9',
-  },
-  selectorLabel: {
+  dueDate: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  selectorText: {
-    fontSize: 16,
-    color: '#1a1a1a',
-    fontWeight: '500',
-  },
-  iosPickerContainer: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    paddingTop: 10,
-  },
-  iosPicker: {
-    height: 200,
-  },
-  iosPickerButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  iosPickerButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  iosPickerButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  button: {
-    backgroundColor: '#1a1a1a',
-    padding: 16,
+    color: "#666",
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: 10,
-    marginTop: 30,
-    marginBottom: 12,
+    marginRight: 8,
+    marginTop: 4,
   },
-  buttonDisabled: {
-    backgroundColor: '#b0b0b0',
+  dueDateCompleted: {
+    backgroundColor: "#e8f5e9",
+    color: "#4CAF50",
   },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelButton: {
-    padding: 16,
+  completedDate: {
+    fontSize: 12,
+    color: "#4CAF50",
+    backgroundColor: "#e8f5e9",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#e0e0e0',
+    marginTop: 4,
   },
-  cancelButtonText: {
-    color: '#666',
-    textAlign: 'center',
+  actionButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  editBtn: {
+    marginLeft: 12,
+    padding: 8,
+  },
+  editText: {
+    fontSize: 18,
+    color: "#2196F3",
+  },
+  deleteBtn: {
+    marginLeft: 12,
+    padding: 8,
+  },
+  deleteText: {
+    fontSize: 18,
+    color: "#ff6b6b",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    marginTop: 60,
+    padding: 20,
+  },
+  empty: {
+    textAlign: "center",
+    fontSize: 18,
+    color: "#888",
+    marginBottom: 16,
+  },
+  addTaskPrompt: {
     fontSize: 16,
-    fontWeight: '500',
+    color: "#2196F3",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  fab: {
+    position: "absolute",
+    right: 24,
+    bottom: 36,
+    backgroundColor: "#1a1a1a",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  fabText: {
+    color: "#fff",
+    fontSize: 30,
+    fontWeight: "300",
+    marginTop: -2,
   },
 });

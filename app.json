@@ -11,7 +11,12 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "extra": {
+      "expoRouterAppRoot": "app"
+    },
     "ios": {
       "supportsTablet": true
     },
@@ -26,7 +31,10 @@
       "favicon": "./assets/images/favicon.png",
       "bundler": "metro"
     },
-    "plugins": ["expo-router", "expo-build-properties"],
+    "plugins": [
+      "expo-build-properties",
+      "expo-router"
+    ],
     "scheme": "demoapp"
   }
 }

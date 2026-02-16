@@ -1,14 +1,14 @@
 // app/index.jsx - Splash Screen
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
 
 export default function SplashScreen() {
   const router = useRouter();
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace('/login');  // ← Check this line too
+      router.replace("/login"); // ← Check this line too
     }, 2000);
 
     return () => clearTimeout(timer);

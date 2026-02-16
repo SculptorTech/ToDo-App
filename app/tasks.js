@@ -1,6 +1,6 @@
-import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   RefreshControl,
@@ -9,13 +9,13 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { getTasks, saveTasks } from '../src/utils/storage';
+} from "react-native";
+import { getTasks, saveTasks } from "../src/utils/storage";
 
 export default function TaskListScreen() {
   const [tasks, setTasks] = useState([]);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all'); // all | pending | completed
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all"); // all | pending | completed
   const [refreshing, setRefreshing] = useState(false);
 
   const router = useRouter();
@@ -28,9 +28,9 @@ export default function TaskListScreen() {
   // Auto-refresh when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      console.log('Screen focused, refreshing tasks...');
+      console.log("Screen focused, refreshing tasks...");
       loadTasks();
-    }, [])
+    }, []),
   );
 
   const loadTasks = async () => {
@@ -46,7 +46,7 @@ export default function TaskListScreen() {
 
   const toggleTaskCompletion = async (id) => {
     const updated = tasks.map((t) =>
-      t.id === id ? { ...t, completed: !t.completed } : t
+      t.id === id ? { ...t, completed: !t.completed } : t,
     );
     setTasks(updated);
     await saveTasks(updated);
@@ -59,7 +59,7 @@ export default function TaskListScreen() {
   };
 
   const logout = () => {
-    router.replace('/login');
+    router.replace("/login");
   };
 
   // ===== DYNAMIC FILTERING + SORTING =====
@@ -69,13 +69,13 @@ export default function TaskListScreen() {
     // search
     if (search.trim()) {
       list = list.filter((t) =>
-        t.title.toLowerCase().includes(search.toLowerCase())
+        t.title.toLowerCase().includes(search.toLowerCase()),
       );
     }
 
     // filter
-    if (filter === 'pending') list = list.filter((t) => !t.completed);
-    if (filter === 'completed') list = list.filter((t) => t.completed);
+    if (filter === "pending") list = list.filter((t) => !t.completed);
+    if (filter === "completed") list = list.filter((t) => t.completed);
 
     // sort: pending first, then completed
     // within pending: sort by due date
@@ -83,13 +83,13 @@ export default function TaskListScreen() {
     list.sort((a, b) => {
       if (!a.completed && b.completed) return -1;
       if (a.completed && !b.completed) return 1;
-      
+
       if (!a.completed && !b.completed) {
         if (!a.dueDate) return 1;
         if (!b.dueDate) return -1;
         return new Date(a.dueDate) - new Date(b.dueDate);
       }
-      
+
       // Both completed - most recent first
       if (!a.completedAt) return 1;
       if (!b.completedAt) return -1;
@@ -102,13 +102,13 @@ export default function TaskListScreen() {
   const handleTaskComplete = async (id) => {
     const task = tasks.find((t) => t.id === id);
     const updated = tasks.map((t) =>
-      t.id === id 
-        ? { 
-            ...t, 
-            completed: true, 
-            completedAt: new Date().toISOString() 
-          } 
-        : t
+      t.id === id
+        ? {
+            ...t,
+            completed: true,
+            completedAt: new Date().toISOString(),
+          }
+        : t,
     );
     setTasks(updated);
     await saveTasks(updated);
@@ -135,26 +135,47 @@ export default function TaskListScreen() {
       {/* FILTERS */}
       <View style={styles.filters}>
         <TouchableOpacity
-          onPress={() => setFilter('all')}
-          style={[styles.filterBtn, filter === 'all' && styles.filterActive]}
+          onPress={() => setFilter("all")}
+          style={[styles.filterBtn, filter === "all" && styles.filterActive]}
         >
-          <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              filter === "all" && styles.filterTextActive,
+            ]}
+          >
             All
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => setFilter('pending')}
-          style={[styles.filterBtn, filter === 'pending' && styles.filterActive]}
+          onPress={() => setFilter("pending")}
+          style={[
+            styles.filterBtn,
+            filter === "pending" && styles.filterActive,
+          ]}
         >
-          <Text style={[styles.filterText, filter === 'pending' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              filter === "pending" && styles.filterTextActive,
+            ]}
+          >
             Pending
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => setFilter('completed')}
-          style={[styles.filterBtn, filter === 'completed' && styles.filterActive]}
+          onPress={() => setFilter("completed")}
+          style={[
+            styles.filterBtn,
+            filter === "completed" && styles.filterActive,
+          ]}
         >
-          <Text style={[styles.filterText, filter === 'completed' && styles.filterTextActive]}>
+          <Text
+            style={[
+              styles.filterText,
+              filter === "completed" && styles.filterTextActive,
+            ]}
+          >
             Completed
           </Text>
         </TouchableOpacity>
@@ -163,9 +184,9 @@ export default function TaskListScreen() {
       {/* STATS */}
       <View style={styles.stats}>
         <Text style={styles.statText}>
-          📊 Total: {tasks.length} | 
-          ✅ Completed: {tasks.filter(t => t.completed).length} | 
-          ⏳ Pending: {tasks.filter(t => !t.completed).length}
+          📊 Total: {tasks.length} | ✅ Completed:{" "}
+          {tasks.filter((t) => t.completed).length} | ⏳ Pending:{" "}
+          {tasks.filter((t) => !t.completed).length}
         </Text>
       </View>
 
@@ -173,25 +194,30 @@ export default function TaskListScreen() {
       <FlatList
         data={visibleTasks}
         keyExtractor={(item) => item.id}
-       // In TaskListScreen.js, in the renderItem function:
-renderItem={({ item }) => (
-  <TaskItem
-    task={item}
-    onToggleComplete={() => handleTaskComplete(item.id)}
-    onDelete={() => deleteTask(item.id)}
-    onEdit={() => router.push({
-      pathname: '/edit-task',
-      params: { taskId: item.id }
-    })}
-  />
-)}
+        // In TaskListScreen.js, in the renderItem function:
+        renderItem={({ item }) => (
+          <TaskItem
+            task={item}
+            onToggleComplete={() => handleTaskComplete(item.id)}
+            onDelete={() => deleteTask(item.id)}
+            onEdit={() =>
+              router.push({
+                pathname: "/edit-task",
+                params: { taskId: item.id },
+              })
+            }
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.empty}>
-              {filter === 'completed' ? 'No completed tasks' : 
-               filter === 'pending' ? 'No pending tasks' : 'No tasks yet'}
+              {filter === "completed"
+                ? "No completed tasks"
+                : filter === "pending"
+                  ? "No pending tasks"
+                  : "No tasks yet"}
             </Text>
-            <TouchableOpacity onPress={() => router.push('/add-task')}>
+            <TouchableOpacity onPress={() => router.push("/add-task")}>
               <Text style={styles.addTaskPrompt}>+ Add a new task</Text>
             </TouchableOpacity>
           </View>
@@ -204,9 +230,9 @@ renderItem={({ item }) => (
       />
 
       {/* FAB */}
-      <TouchableOpacity 
-        style={styles.fab} 
-        onPress={() => router.push('/add-task')}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => router.push("/add-task")}
         activeOpacity={0.8}
       >
         <Text style={styles.fabText}>+</Text>
@@ -218,31 +244,39 @@ renderItem={({ item }) => (
 // TaskItem component with edit button
 function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
   const getPriorityColor = () => {
-    switch(task.priority) {
-      case 'High': return '#ff6b6b';
-      case 'Medium': return '#ffd93d';
-      case 'Low': return '#6bcf7f';
-      default: return '#ddd';
+    switch (task.priority) {
+      case "High":
+        return "#ff6b6b";
+      case "Medium":
+        return "#ffd93d";
+      case "Low":
+        return "#6bcf7f";
+      default:
+        return "#ddd";
     }
   };
 
   return (
-    <View style={[
-      styles.taskContainer,
-      task.completed && styles.taskContainerCompleted
-    ]}>
+    <View
+      style={[
+        styles.taskContainer,
+        task.completed && styles.taskContainerCompleted,
+      ]}
+    >
       <View style={styles.taskContent}>
         {/* CHECKBOX */}
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={onToggleComplete}
           style={styles.checkboxContainer}
           disabled={task.completed}
         >
-          <View style={[
-            styles.checkbox,
-            task.completed && styles.checkboxChecked,
-            { borderColor: task.completed ? '#4CAF50' : getPriorityColor() }
-          ]}>
+          <View
+            style={[
+              styles.checkbox,
+              task.completed && styles.checkboxChecked,
+              { borderColor: task.completed ? "#4CAF50" : getPriorityColor() },
+            ]}
+          >
             {task.completed && <Text style={styles.checkmark}>✓</Text>}
           </View>
         </TouchableOpacity>
@@ -250,37 +284,48 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
         {/* TASK DETAILS */}
         <View style={styles.taskDetails}>
           <View style={styles.taskHeader}>
-            <Text style={[
-              styles.taskTitle,
-              task.completed && styles.taskTitleCompleted
-            ]}>
+            <Text
+              style={[
+                styles.taskTitle,
+                task.completed && styles.taskTitleCompleted,
+              ]}
+            >
               {task.title}
             </Text>
             {task.priority && !task.completed && (
-              <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor() + '20' }]}>
-                <Text style={[styles.priorityText, { color: getPriorityColor() }]}>
+              <View
+                style={[
+                  styles.priorityBadge,
+                  { backgroundColor: getPriorityColor() + "20" },
+                ]}
+              >
+                <Text
+                  style={[styles.priorityText, { color: getPriorityColor() }]}
+                >
                   {task.priority}
                 </Text>
               </View>
             )}
           </View>
-          
+
           {task.description && (
             <Text style={styles.taskDescription} numberOfLines={2}>
               {task.description}
             </Text>
           )}
-          
+
           <View style={styles.taskFooter}>
             {task.dueDate && (
-              <Text style={[
-                styles.dueDate,
-                task.completed ? styles.dueDateCompleted : {}
-              ]}>
+              <Text
+                style={[
+                  styles.dueDate,
+                  task.completed ? styles.dueDateCompleted : {},
+                ]}
+              >
                 📅 {new Date(task.dueDate).toLocaleDateString()}
               </Text>
             )}
-            
+
             {task.completedAt && (
               <Text style={styles.completedDate}>
                 ✅ {new Date(task.completedAt).toLocaleDateString()}
@@ -293,7 +338,7 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
         <View style={styles.actionButtons}>
           {/* EDIT BUTTON (only for non-completed tasks) */}
           {!task.completed && (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={onEdit}
               style={styles.editBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -301,10 +346,10 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
               <Text style={styles.editText}>✏️</Text>
             </TouchableOpacity>
           )}
-          
+
           {/* DELETE BUTTON (only for completed tasks) */}
           {task.completed && (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={onDelete}
               style={styles.deleteBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -319,105 +364,105 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 16, 
-    backgroundColor: '#f5f5f5' 
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: "#f5f5f5",
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
-  title: { 
-    fontSize: 28, 
-    fontWeight: 'bold',
-    color: '#1a1a1a'
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#1a1a1a",
   },
   logoutBtn: {
-    backgroundColor: '#ffebee',
+    backgroundColor: "#ffebee",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ffcdd2',
+    borderColor: "#ffcdd2",
   },
   logoutText: {
-    color: '#d32f2f',
-    fontWeight: '600',
+    color: "#d32f2f",
+    fontWeight: "600",
     fontSize: 14,
   },
   searchInput: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: "#e0e0e0",
     marginBottom: 16,
     fontSize: 16,
   },
   filters: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginBottom: 12,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   filterBtn: {
     paddingVertical: 8,
     paddingHorizontal: 20,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     marginHorizontal: 4,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   filterActive: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#1a1a1a',
+    backgroundColor: "#1a1a1a",
+    borderColor: "#1a1a1a",
   },
   filterText: {
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    color: "#666",
+    fontWeight: "500",
   },
   filterTextActive: {
-    color: '#fff',
-    fontWeight: '600',
+    color: "#fff",
+    fontWeight: "600",
   },
   stats: {
-    backgroundColor: '#e3f2fd',
+    backgroundColor: "#e3f2fd",
     padding: 10,
     borderRadius: 10,
     marginBottom: 16,
-    alignItems: 'center',
+    alignItems: "center",
   },
   statText: {
     fontSize: 12,
-    color: '#1976d2',
-    fontWeight: '500',
+    color: "#1976d2",
+    fontWeight: "500",
   },
   taskContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1.5,
-    borderColor: '#f0f0f0',
-    shadowColor: '#000',
+    borderColor: "#f0f0f0",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   taskContainerCompleted: {
-    backgroundColor: '#f8f9fa',
-    borderColor: '#e9ecef',
+    backgroundColor: "#f8f9fa",
+    borderColor: "#e9ecef",
     borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
+    borderLeftColor: "#4CAF50",
   },
   taskContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   checkboxContainer: {
     marginRight: 16,
@@ -427,38 +472,38 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
   },
   checkboxChecked: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
+    backgroundColor: "#4CAF50",
+    borderColor: "#4CAF50",
   },
   checkmark: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 16,
   },
   taskDetails: {
     flex: 1,
   },
   taskHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 4,
-    flexWrap: 'wrap',
+    flexWrap: "wrap",
   },
   taskTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontWeight: "600",
+    color: "#1a1a1a",
     marginRight: 8,
     flex: 1,
   },
   taskTitleCompleted: {
-    textDecorationLine: 'line-through',
-    color: '#888',
+    textDecorationLine: "line-through",
+    color: "#888",
   },
   priorityBadge: {
     paddingHorizontal: 8,
@@ -467,23 +512,23 @@ const styles = StyleSheet.create({
   },
   priorityText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   taskDescription: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginBottom: 8,
     lineHeight: 18,
   },
   taskFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
   },
   dueDate: {
     fontSize: 12,
-    color: '#666',
-    backgroundColor: '#f0f0f0',
+    color: "#666",
+    backgroundColor: "#f0f0f0",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
@@ -491,21 +536,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   dueDateCompleted: {
-    backgroundColor: '#e8f5e9',
-    color: '#4CAF50',
+    backgroundColor: "#e8f5e9",
+    color: "#4CAF50",
   },
   completedDate: {
     fontSize: 12,
-    color: '#4CAF50',
-    backgroundColor: '#e8f5e9',
+    color: "#4CAF50",
+    backgroundColor: "#e8f5e9",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
     marginTop: 4,
   },
   actionButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   editBtn: {
     marginLeft: 12,
@@ -513,7 +558,7 @@ const styles = StyleSheet.create({
   },
   editText: {
     fontSize: 18,
-    color: '#2196F3',
+    color: "#2196F3",
   },
   deleteBtn: {
     marginLeft: 12,
@@ -521,45 +566,45 @@ const styles = StyleSheet.create({
   },
   deleteText: {
     fontSize: 18,
-    color: '#ff6b6b',
+    color: "#ff6b6b",
   },
   emptyContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 60,
     padding: 20,
   },
   empty: {
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 18,
-    color: '#888',
+    color: "#888",
     marginBottom: 16,
   },
   addTaskPrompt: {
     fontSize: 16,
-    color: '#2196F3',
-    fontWeight: '600',
-    textDecorationLine: 'underline',
+    color: "#2196F3",
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     right: 24,
     bottom: 36,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: "#1a1a1a",
     width: 60,
     height: 60,
     borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     elevation: 6,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
   },
-  fabText: { 
-    color: '#fff', 
+  fabText: {
+    color: "#fff",
     fontSize: 30,
-    fontWeight: '300',
+    fontWeight: "300",
     marginTop: -2,
   },
 });

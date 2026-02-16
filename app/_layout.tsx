@@ -1,23 +1,19 @@
-// src/navigation/AppNavigator.js
 
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
-
+import { createStackNavigator } from "@react-navigation/stack";
 import AddTaskScreen from "../screens/AddTaskScreen";
-import EditTaskScreen from "../screens/EditTaskScreen";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import TaskListScreen from "../screens/TaskListScreen";
 
-const Stack = createNativeStackNavigator();
+const Stack = createStackNavigator();
 
 export default function AppNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
-      <Stack.Screen name="TaskList" component={TaskListScreen} />
+      <Stack.Screen name="Tasks" component={TaskListScreen} />
       <Stack.Screen name="AddTask" component={AddTaskScreen} />
-      <Stack.Screen name="EditTask" component={EditTaskScreen} />
     </Stack.Navigator>
   );
 }
