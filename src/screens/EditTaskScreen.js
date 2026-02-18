@@ -247,10 +247,10 @@ export default function EditTaskScreen() {
       setRecording(null);
       setRecordingTime(0);
 
-      const { sound } = await Audio.Sound.createAsync(
-        require("../assets/sounds/success.mp3"),
-      );
-      await sound.playAsync();
+      // const { sound } = await Audio.Sound.createAsync(
+      //   require("../assets/sounds/success.mp3"),
+      // );
+      // await sound.playAsync();
     } catch (err) {
       console.error("Failed to stop recording", err);
     }

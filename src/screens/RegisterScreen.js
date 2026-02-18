@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -11,7 +10,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { syncLocalTasks } from "../utils/storage";
 //import { supabase } from '../utils/supabase';
 
 export default function LoginScreen() {
@@ -67,7 +65,7 @@ export default function LoginScreen() {
       if (error) throw error;
 
       // Sync any locally stored tasks to cloud
-      await syncLocalTasks();
+      // await syncLocalTasks();
 
       Alert.alert("Success", "Logged in successfully!", [
         { text: "OK", onPress: () => router.replace("/TaskListScreen") },

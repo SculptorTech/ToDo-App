@@ -14,9 +14,6 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "extra": {
-      "expoRouterAppRoot": "app"
-    },
     "ios": {
       "supportsTablet": true
     },
@@ -32,9 +29,12 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-build-properties",
-      "expo-router"
+      "expo-build-properties"
     ],
-    "scheme": "demoapp"
+    "extra": {
+      "eas": {
+        "projectId": "664ab72c-0398-4b6b-9418-cb9d6af1af19"
+      }
+    }
   }
 }

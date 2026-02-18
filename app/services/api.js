@@ -1,22 +1,35 @@
-import axios from "axios";
-
 const API_BASE_URL = "http://localhost:5000";
-//const API_BASE_URL = "http://192.168.1.5:5000";
-// for Android emulator
 
-// If using physical device, use your PC IP like:
-// const API_BASE_URL = "http://192.168.1.5:5000";
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
+// Simple fetch wrapper that mimics axios interface
+const api = {
+  post: async (url, data) => {
+    const response = await fetch(`${API_BASE_URL}${url}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    
+    const result = await response.json();
+    return { data: result }; // Wraps in data property like axios
   },
-});
+  
+  get: async (url) => {
+    const response = await fetch(`${API_BASE_URL}${url}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    const result = await response.json();
+    return { data: result }; // Wraps in data property like axios
+  }
+};
 
 export const createTask = (input) =>
   api.post("/ai/create-task", { input });
-
 
 export const getSmartSummary = () => api.get("/summary");
 
