@@ -4,7 +4,6 @@ import Voice from "@react-native-voice/voice";
 import { useNavigation } from "@react-navigation/native";
 import { Audio } from "expo-av";
 import { useEffect, useRef, useState } from "react";
-
 import {
   ActivityIndicator,
   Alert,
@@ -19,9 +18,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  autoPriority,
+  createTask,
+  enhanceTask,
+  generateDescription,
+  planWithSchedule,
+  testGroqConnection,
+} from "../../app/services/api";
 import { getTasks, saveTasks } from "../utils/storage";
-
-import { autoPriority, generateDescription } from "../../app/services/api";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -70,13 +75,6 @@ export default function AddTaskScreen() {
   const isMounted = useRef(true);
   const descriptionRef = useRef(null);
 
-  useEffect(() => {
-    fetch("http://10.0.2.2:5000/health")
-      .then((res) => res.json())
-      .then((data) => console.log("BACKEND OK:", data))
-      .catch((err) => console.log("BACKEND ERROR:", err));
-  }, []);
-
   // Helper function to clean API response
   const cleanApiResponse = (apiText) => {
     if (!apiText) return "";
@@ -110,6 +108,15 @@ export default function AddTaskScreen() {
     console.log("Cleaned description:", cleaned);
     return cleaned;
   };
+  // Add this function before the return statement
+  const testGroq = async () => {
+    const result = await testGroqConnection();
+    if (result.success) {
+      Alert.alert("✅ GROQ API Working!", result.message);
+    } else {
+      Alert.alert("❌ GROQ API Failed", JSON.stringify(result.error));
+    }
+  };
 
   // AI Action Functions
   const handleGenerateDescription = async () => {
@@ -129,26 +136,15 @@ export default function AddTaskScreen() {
       if (res.data?.description) {
         const cleanedDescription = cleanApiResponse(res.data.description);
         setDescription(cleanedDescription);
+      } else if (res.data?.content) {
+        const cleanedDescription = cleanApiResponse(res.data.content);
+        setDescription(cleanedDescription);
       } else {
-        const cleanedDescription = cleanApiResponse(
-          res.data || res.description || "",
-        );
-        setDescription(
-          cleanedDescription ||
-            `Task: ${title.trim()}. Complete with attention to detail.`,
-        );
+        setDescription(`Complete "${title.trim()}" efficiently and on time.`);
       }
     } catch (error) {
-      console.log(
-        "Description error:",
-        error.response?.data || error.message || error,
-      );
-      Alert.alert(
-        "Error",
-        error.response?.data?.message ||
-          error.message ||
-          "Failed to generate description. Please try again.",
-      );
+      console.log("Description error:", error);
+      Alert.alert("Error", "Failed to generate description. Please try again.");
       setDescription(`Complete "${title.trim()}" efficiently and on time.`);
     } finally {
       setIsGeneratingAI(false);
@@ -165,14 +161,20 @@ export default function AddTaskScreen() {
     setShowAiOptions(false);
 
     try {
-      const res = await generateDescription(
-        `Enhance and improve this task: ${title.trim()}. ${description.trim()}`,
-      );
+      const response = await enhanceTask({
+        title: title.trim(),
+        description: description.trim(),
+        priority: priority,
+      });
 
-      if (res.data?.description) {
-        const cleanedDescription = cleanApiResponse(res.data.description);
+      if (response.data?.content) {
+        const cleanedDescription = cleanApiResponse(response.data.content);
         setDescription(cleanedDescription);
-        Alert.alert("Success", "Task enhanced with AI!");
+        Alert.alert("Success", "Task enhanced successfully!");
+      } else if (response.data?.description) {
+        const cleanedDescription = cleanApiResponse(response.data.description);
+        setDescription(cleanedDescription);
+        Alert.alert("Success", "Task enhanced successfully!");
       }
     } catch (error) {
       console.log("Enhance error:", error);
@@ -192,26 +194,76 @@ export default function AddTaskScreen() {
     setShowAiOptions(false);
 
     try {
-      const res = await generateDescription(
-        `Plan and schedule this task based on current date: ${title.trim()}. Current date: ${new Date().toLocaleDateString()}`,
-      );
+      const response = await planWithSchedule({
+        title: title.trim(),
+        dueDate: date.toISOString(),
+        priority: priority,
+      });
 
-      if (res.data?.description) {
-        const cleanedDescription = cleanApiResponse(res.data.description);
-
+      if (response.data?.content) {
+        const cleanedContent = cleanApiResponse(response.data.content);
+        const scheduledDescription = `${cleanedContent}\n\n📅 **Suggested Schedule:**\n• Start Date: ${new Date().toLocaleDateString()}\n• Timeline: 3-5 days\n• Checkpoints: Daily progress reviews`;
+        setDescription((prev) =>
+          prev ? prev + "\n\n" + scheduledDescription : scheduledDescription,
+        );
+        Alert.alert("Success", "Schedule created successfully!");
+      } else if (response.data?.description) {
+        const cleanedDescription = cleanApiResponse(response.data.description);
         const scheduledDescription = `${cleanedDescription}\n\n📅 **Suggested Schedule:**\n• Start Date: ${new Date().toLocaleDateString()}\n• Timeline: 3-5 days\n• Checkpoints: Daily progress reviews`;
-
-        setDescription(scheduledDescription);
-
-        const suggestedDate = new Date();
-        suggestedDate.setDate(suggestedDate.getDate() + 3);
-        setDate(suggestedDate);
-
-        Alert.alert("Success", "Task planned and scheduled!");
+        setDescription((prev) =>
+          prev ? prev + "\n\n" + scheduledDescription : scheduledDescription,
+        );
+        Alert.alert("Success", "Schedule created successfully!");
       }
     } catch (error) {
       console.log("Plan error:", error);
-      Alert.alert("Error", "Failed to create plan");
+      Alert.alert("Error", "Failed to create schedule");
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  const handleAutoPriority = async () => {
+    if (!title.trim()) {
+      Alert.alert("Error", "Please enter a task title first");
+      return;
+    }
+
+    try {
+      const response = await autoPriority({ text: title });
+      if (response.data?.priority) {
+        setPriority(response.data.priority);
+        Alert.alert("Priority Set", `Priority: ${response.data.priority}`);
+      }
+    } catch (error) {
+      console.log("Priority error:", error);
+      Alert.alert("Error", "Failed to analyze priority");
+    }
+  };
+
+  const handleCreateTaskWithAI = async () => {
+    if (!title.trim()) {
+      Alert.alert("Error", "Please enter a task title first");
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    setShowAiOptions(false);
+
+    try {
+      const response = await createTask(title.trim());
+      if (response.data?.content) {
+        const cleanedContent = cleanApiResponse(response.data.content);
+        setDescription(cleanedContent);
+        Alert.alert("Success", "AI-generated task created!");
+      } else if (response.data?.description) {
+        const cleanedDescription = cleanApiResponse(response.data.description);
+        setDescription(cleanedDescription);
+        Alert.alert("Success", "AI-generated task created!");
+      }
+    } catch (error) {
+      console.log("Create task error:", error);
+      Alert.alert("Error", "Failed to create task with AI");
     } finally {
       setIsGeneratingAI(false);
     }
@@ -507,15 +559,6 @@ export default function AddTaskScreen() {
       setShowDescriptionModal(false);
       setShowFilterOptions(false);
 
-      const taskData = {
-        title: title.trim(),
-        description: description.trim(),
-        priority,
-        dueDate: date.toISOString(),
-        voiceNote: recognizedText || null,
-        recordings: recordings.length > 0 ? recordings.map((r) => r.uri) : [],
-      };
-
       const existing = await getTasks();
 
       const newTask = {
@@ -531,22 +574,7 @@ export default function AddTaskScreen() {
       };
 
       await saveTasks([...existing, newTask]);
-      navigation.goBack();
 
-      setTitle("");
-      setDescription("");
-      setRecognizedText("");
-      setPartialText("");
-      setRecordings([]);
-      setVoiceError("");
-      setPriority("Normal");
-
-      const now = new Date();
-      now.setHours(now.getHours() + 1);
-      now.setMinutes(0);
-      setDate(now);
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
       navigation.goBack();
     } catch (error) {
       console.error("Error adding task:", error);
@@ -583,7 +611,6 @@ export default function AddTaskScreen() {
       now.setMinutes(0);
       setDate(now);
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
       navigation.goBack();
     } catch (error) {
       console.error("Error during cancel cleanup:", error);
@@ -914,48 +941,64 @@ export default function AddTaskScreen() {
       </ScrollView>
 
       {/* Floating AI Button */}
-      {title.trim() && title.length > 3 && (
+{title.trim() && title.length > 3 && (
+  <TouchableOpacity
+    style={styles.floatingAiButton}
+    onPress={() => setShowAiOptions(!showAiOptions)}
+  >
+    {/* Fixed: "sparkles" is the correct name */}
+    <Ionicons name="sparkles" size={24} color="#fff" />
+    
+    {showAiOptions && (
+      <View style={styles.aiOptionsPanel}>
         <TouchableOpacity
-          style={styles.floatingAiButton}
-          onPress={() => setShowAiOptions(!showAiOptions)}
+          style={[styles.aiOption, styles.generateOption]}
+          onPress={handleGenerateDescription}
+          disabled={isGeneratingAI}
         >
-          <Ionicons name="sparkles" size={24} color="#fff" />
-          {showAiOptions && (
-            <View style={styles.aiOptionsPanel}>
-              <TouchableOpacity
-                style={[styles.aiOption, styles.generateOption]}
-                onPress={handleGenerateDescription}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={18}
-                  color="#007AFF"
-                />
-                <Text style={styles.aiOptionText}>Generate Description</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.enhanceOption]}
-                onPress={handleEnhanceTask}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="star-outline" size={18} color="#5856D6" />
-                <Text style={styles.aiOptionText}>Enhance Task</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.scheduleOption]}
-                onPress={handlePlanWithSchedule}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="calendar-outline" size={18} color="#34C759" />
-                <Text style={styles.aiOptionText}>Plan with Schedule</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <Ionicons name="document-text-outline" size={18} color="#007AFF" />
+          <Text style={styles.aiOptionText}>Generate Description</Text>
         </TouchableOpacity>
-      )}
+
+        <TouchableOpacity
+          style={[styles.aiOption, styles.enhanceOption]}
+          onPress={handleEnhanceTask}
+          disabled={isGeneratingAI}
+        >
+          <Ionicons name="star-outline" size={18} color="#5856D6" />
+          <Text style={styles.aiOptionText}>Enhance Task</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.aiOption, styles.scheduleOption]}
+          onPress={handlePlanWithSchedule}
+          disabled={isGeneratingAI}
+        >
+          <Ionicons name="calendar-outline" size={18} color="#34C759" />
+          <Text style={styles.aiOptionText}>Plan with Schedule</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.aiOption, styles.priorityOption]}
+          onPress={handleAutoPriority}
+          disabled={isGeneratingAI}
+        >
+          <Ionicons name="flag-outline" size={18} color="#FF9500" />
+          <Text style={styles.aiOptionText}>Auto Priority</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.aiOption, styles.createOption]}
+          onPress={handleCreateTaskWithAI}
+          disabled={isGeneratingAI}
+        >
+          <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
+          <Text style={styles.aiOptionText}>Create Task with AI</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+  </TouchableOpacity>
+)}
 
       {/* Fixed Add Task Button */}
       <View style={styles.fixedActionBar}>
@@ -1278,7 +1321,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     color: "#1a1a1a",
   },
-  // Filter Button
   filterButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1374,7 +1416,6 @@ const styles = StyleSheet.create({
     color: "#1a1a1a",
     marginLeft: 8,
   },
-  // Description Preview
   fullscreenButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1419,7 +1460,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#999",
   },
-  // Audio Notes
   recordButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1461,7 +1501,6 @@ const styles = StyleSheet.create({
   playButton: {
     padding: 4,
   },
-  // Voice Results
   voiceResultContainer: {
     backgroundColor: "#f0f8ff",
     padding: 14,
@@ -1481,7 +1520,6 @@ const styles = StyleSheet.create({
     color: "#333",
     lineHeight: 18,
   },
-  // Fixed Action Bar
   fixedActionBar: {
     position: "absolute",
     bottom: 0,
@@ -1509,7 +1547,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Floating AI Button
   floatingAiButton: {
     position: "absolute",
     bottom: 90,
@@ -1556,13 +1593,28 @@ const styles = StyleSheet.create({
   scheduleOption: {
     backgroundColor: "#f0fff0",
   },
+  priorityOption: {
+    backgroundColor: "#fff5e6",
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  createOption: {
+    backgroundColor: "#e6f7ff",
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
   aiOptionText: {
     fontSize: 13,
     fontWeight: "500",
     marginLeft: 8,
     color: "#333",
   },
-  // Fullscreen Description Modal
   fullscreenModal: {
     flex: 1,
     backgroundColor: "#fff",
@@ -1636,7 +1688,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  // Voice Modal
   modalContainer: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -1727,7 +1778,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 8,
   },
-  // Recording Modal
   recordingsList: {
     maxHeight: 400,
   },
@@ -1780,7 +1830,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF3B30",
     marginRight: 8,
   },
-  // iOS Picker
   iosPickerContainer: {
     backgroundColor: "#fff",
     borderTopWidth: 1,

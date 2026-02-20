@@ -1,6 +1,7 @@
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -55,21 +56,37 @@ export default function TaskListScreen() {
         ? {
             ...t,
             completed: !t.completed,
-            completedAt: !t.completed ? new Date().toISOString() : null, // Set when completing, remove when uncompleting
+            completedAt: !t.completed ? new Date().toISOString() : null,
           }
         : t,
     );
     setTasks(updated);
     await saveTasks(updated);
   };
+
   const deleteTask = async (id) => {
-    const updated = tasks.filter((t) => t.id !== id);
-    setTasks(updated);
-    await saveTasks(updated);
+    Alert.alert("Delete Task", "Are you sure you want to delete this task?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          const updated = tasks.filter((t) => t.id !== id);
+          setTasks(updated);
+          await saveTasks(updated);
+        },
+      },
+    ]);
   };
 
   const logout = () => {
-    navigation.replace("Login"); // NOT router.replace
+    try {
+      console.log("Logging out...");
+      navigation.replace("Login");
+    } catch (error) {
+      console.error("Logout error:", error);
+      Alert.alert("Error", "Failed to logout");
+    }
   };
 
   // ===== DYNAMIC FILTERING + SORTING =====
@@ -88,8 +105,6 @@ export default function TaskListScreen() {
     if (filter === "completed") list = list.filter((t) => t.completed);
 
     // sort: pending first, then completed
-    // within pending: sort by due date
-    // within completed: sort by completion date (most recent first)
     list.sort((a, b) => {
       if (!a.completed && b.completed) return -1;
       if (a.completed && !b.completed) return 1;
@@ -110,7 +125,6 @@ export default function TaskListScreen() {
   }, [tasks, search, filter]);
 
   const handleTaskComplete = async (id) => {
-    const task = tasks.find((t) => t.id === id);
     const updated = tasks.map((t) =>
       t.id === id
         ? {
@@ -122,6 +136,13 @@ export default function TaskListScreen() {
     );
     setTasks(updated);
     await saveTasks(updated);
+  };
+
+  const getStatsText = () => {
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.completed).length;
+    const pending = tasks.filter((t) => !t.completed).length;
+    return `Total: ${total} | Completed: ${completed} | Pending: ${pending}`;
   };
 
   return (
@@ -193,19 +214,13 @@ export default function TaskListScreen() {
 
       {/* STATS */}
       <View style={styles.stats}>
-        <Text style={styles.statText}>
-          📊 Total: {tasks.length} | ✅ Completed:{" "}
-          {tasks.filter((t) => t.completed).length} | ⏳ Pending:{" "}
-          {tasks.filter((t) => !t.completed).length}
-        </Text>
+        <Text style={styles.statText}>{getStatsText()}</Text>
       </View>
 
       {/* TASK LIST */}
       <FlatList
         data={visibleTasks}
         keyExtractor={(item) => item.id}
-        // In the FlatList renderItem, change the onEdit prop to this:
-
         renderItem={({ item }) => (
           <TaskItem
             task={item}
@@ -224,8 +239,6 @@ export default function TaskListScreen() {
                   : "No tasks yet"}
             </Text>
             <TouchableOpacity onPress={() => navigation.navigate("AddTask")}>
-              {" "}
-              // CHANGE THIS
               <Text style={styles.addTaskPrompt}>+ Add a new task</Text>
             </TouchableOpacity>
           </View>
@@ -261,6 +274,16 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
       default:
         return "#ddd";
     }
+  };
+
+  const getPriorityText = () => {
+    return task.priority ? task.priority : "None";
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
   };
 
   return (
@@ -309,35 +332,35 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
                 <Text
                   style={[styles.priorityText, { color: getPriorityColor() }]}
                 >
-                  {task.priority}
+                  {getPriorityText()}
                 </Text>
               </View>
             )}
           </View>
 
-          {task.description && (
+          {task.description ? (
             <Text style={styles.taskDescription} numberOfLines={2}>
               {task.description}
             </Text>
-          )}
+          ) : null}
 
           <View style={styles.taskFooter}>
-            {task.dueDate && (
+            {task.dueDate ? (
               <Text
                 style={[
                   styles.dueDate,
                   task.completed ? styles.dueDateCompleted : {},
                 ]}
               >
-                📅 {new Date(task.dueDate).toLocaleDateString()}
+                Due: {formatDate(task.dueDate)}
               </Text>
-            )}
+            ) : null}
 
-            {task.completedAt && (
+            {task.completedAt ? (
               <Text style={styles.completedDate}>
-                ✅ {new Date(task.completedAt).toLocaleDateString()}
+                Done: {formatDate(task.completedAt)}
               </Text>
-            )}
+            ) : null}
           </View>
         </View>
 
@@ -350,7 +373,7 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
               style={styles.editBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.editText}>✏️</Text>
+              <Text style={styles.editText}>Edit</Text>
             </TouchableOpacity>
           )}
 
@@ -361,7 +384,7 @@ function TaskItem({ task, onToggleComplete, onDelete, onEdit }) {
               style={styles.deleteBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.deleteText}>🗑️</Text>
+              <Text style={styles.deleteText}>Delete</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -561,19 +584,27 @@ const styles = StyleSheet.create({
   },
   editBtn: {
     marginLeft: 12,
-    padding: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#e3f2fd",
+    borderRadius: 4,
   },
   editText: {
-    fontSize: 18,
-    color: "#2196F3",
+    fontSize: 12,
+    color: "#1976d2",
+    fontWeight: "600",
   },
   deleteBtn: {
     marginLeft: 12,
-    padding: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#ffebee",
+    borderRadius: 4,
   },
   deleteText: {
-    fontSize: 18,
-    color: "#ff6b6b",
+    fontSize: 12,
+    color: "#d32f2f",
+    fontWeight: "600",
   },
   emptyContainer: {
     alignItems: "center",
