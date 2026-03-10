@@ -1,102 +1,162 @@
+// src/screens/RoleBasedSignupScreen.js
+import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-//import { supabase } from '../utils/supabase';
+import { postRequest } from "../services/apiService"; // Import the API method
 
-export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [emailError, setEmailError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
+// Default role set to Developer
+const DEFAULT_ROLE = {
+  id: "developer",
+  name: "Developer",
+  description: "View and update assigned tasks",
+  color: "#28a745",
+  icon: "💻",
+  requiresApproval: false,
+};
+
+export default function RoleBasedSignupScreen() {
+  const [formData, setFormData] = useState({
+    fullName: "",
+    mobileNumber: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    department: "",
+  });
+
+  // Role is fixed as Developer - no state needed for selection
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
-  const router = useRouter();
+  const navigation = useNavigation();
 
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
 
+  const validateMobile = (mobile) => {
+    const mobileRegex = /^[0-9]{10}$/;
+    return mobileRegex.test(mobile);
+  };
+
   const validateForm = () => {
     let isValid = true;
-    setEmailError("");
-    setPasswordError("");
+    const newErrors = {};
 
-    // Email validation
-    if (!email.trim()) {
-      setEmailError("Email is required");
-      isValid = false;
-    } else if (!validateEmail(email)) {
-      setEmailError("Please enter a valid email address");
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = "Full name is required";
       isValid = false;
     }
 
-    // Password validation
-    if (!password.trim()) {
-      setPasswordError("Password is required");
+    if (!formData.mobileNumber.trim()) {
+      newErrors.mobileNumber = "Mobile number is required";
       isValid = false;
-    } else if (password.length < 6) {
-      setPasswordError("Password must be at least 6 characters");
+    } else if (!validateMobile(formData.mobileNumber)) {
+      newErrors.mobileNumber = "Enter a valid 10-digit mobile number";
       isValid = false;
     }
 
+    if (!formData.email.trim()) {
+      newErrors.email = "Email is required";
+      isValid = false;
+    } else if (!validateEmail(formData.email)) {
+      newErrors.email = "Enter a valid email address";
+      isValid = false;
+    }
+
+    if (!formData.password.trim()) {
+      newErrors.password = "Password is required";
+      isValid = false;
+    } else if (formData.password.length < 6) {
+      newErrors.password = "Password must be at least 6 characters";
+      isValid = false;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
+      isValid = false;
+    }
+
+    setErrors(newErrors);
     return isValid;
   };
 
-  const handleLogin = async () => {
+  const handleSignup = async () => {
     if (!validateForm()) return;
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password.trim(),
+      console.log("Attempting signup with:", {
+        FullName: formData.fullName,
+        EmailID: formData.email,
+        Role: DEFAULT_ROLE.id
       });
 
-      if (error) throw error;
+      // Using the imported postRequest method
+      const response = await postRequest("/user/create-user", {
+        FullName: formData.fullName,
+        MobileNumber: formData.mobileNumber,
+        EmailID: formData.email,
+        Password: formData.password,
+        Role: DEFAULT_ROLE.id, // Always use Developer role
+        Department: formData.department || "", // Send empty string if not provided
+      });
 
-      // Sync any locally stored tasks to cloud
-      // await syncLocalTasks();
+      console.log("Signup response:", response);
 
-      Alert.alert("Success", "Logged in successfully!", [
-        { text: "OK", onPress: () => router.replace("/TaskListScreen") },
-      ]);
+      // Check for success - adjust based on your API response structure
+      if (response.success || response.message || response.user) {
+        Alert.alert(
+          "Success",
+          "Account created successfully! You can now login.",
+          [{ text: "OK", onPress: () => navigation.navigate("Login") }],
+        );
+      } else {
+        Alert.alert("Registration Failed", "Unexpected response from server");
+      }
     } catch (error) {
-      console.error("Login error:", error);
-      Alert.alert("Login Failed", error.message || "Invalid credentials");
+      console.error("Signup error:", error);
+
+      // Error handling with the API service response structure
+      if (error.response) {
+        const status = error.response.status;
+        const errorMessage = 
+          error.response.data?.message || 
+          error.response.data?.error || 
+          "Registration failed. Please try again.";
+
+        if (status === 400) {
+          Alert.alert("Validation Error", errorMessage);
+        } else if (status === 409) {
+          Alert.alert("User Exists", "Email or mobile number already registered");
+        } else if (status === 500) {
+          Alert.alert("Server Error", "Internal server error. Please try again later.");
+        } else {
+          Alert.alert("Registration Failed", errorMessage);
+        }
+      } else if (error.request) {
+        Alert.alert(
+          "Connection Error",
+          "Cannot connect to server. Please check your internet connection and try again.",
+        );
+      } else {
+        Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleEmailChange = (text) => {
-    setEmail(text);
-    if (emailError) setEmailError("");
-  };
-
-  const handlePasswordChange = (text) => {
-    setPassword(text);
-    if (passwordError) setPasswordError("");
-  };
-
-  const handleGuestLogin = () => {
-    Alert.alert(
-      "Continue as Guest",
-      "You can use the app offline. Tasks will be saved locally.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Continue", onPress: () => router.replace("/tasks") },
-      ],
-    );
   };
 
   return (
@@ -104,83 +164,175 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <View style={styles.content}>
-        <Text style={styles.title}>Task Manager</Text>
-        <Text style={styles.subtitle}>Organize your tasks efficiently</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.content}>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Sign up as a Developer</Text>
 
-        {/* Email Input */}
-        <TextInput
-          placeholder="Email"
-          style={[styles.input, emailError && styles.inputError]}
-          value={email}
-          onChangeText={handleEmailChange}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!loading}
-        />
-        {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+          {/* Role Info Banner */}
+          <View
+            style={[
+              styles.roleBanner,
+              { backgroundColor: DEFAULT_ROLE.color + "20" },
+            ]}
+          >
+            <View
+              style={[
+                styles.roleIconContainer,
+                { backgroundColor: DEFAULT_ROLE.color },
+              ]}
+            >
+              <Text style={styles.roleIcon}>{DEFAULT_ROLE.icon}</Text>
+            </View>
+            <View style={styles.roleBannerText}>
+              <Text style={styles.roleBannerTitle}>
+                {DEFAULT_ROLE.name} Account
+              </Text>
+              <Text style={styles.roleBannerDesc}>
+                {DEFAULT_ROLE.description}
+              </Text>
+            </View>
+          </View>
 
-        {/* Password Input */}
-        <TextInput
-          placeholder="Password"
-          style={[styles.input, passwordError && styles.inputError]}
-          secureTextEntry
-          value={password}
-          onChangeText={handlePasswordChange}
-          editable={!loading}
-        />
-        {passwordError ? (
-          <Text style={styles.errorText}>{passwordError}</Text>
-        ) : null}
+          {/* Full Name */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Full Name</Text>
+            <TextInput
+              placeholder="Enter your full name"
+              placeholderTextColor="#999"
+              style={[styles.input, errors.fullName && styles.inputError]}
+              value={formData.fullName}
+              onChangeText={(text) =>
+                setFormData({ ...formData, fullName: text })
+              }
+              editable={!loading}
+            />
+            {errors.fullName && (
+              <Text style={styles.errorText}>{errors.fullName}</Text>
+            )}
+          </View>
 
-        {/* Login Button */}
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Login</Text>
-          )}
-        </TouchableOpacity>
+          {/* Mobile Number */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Mobile Number</Text>
+            <TextInput
+              placeholder="Enter 10-digit mobile number"
+              placeholderTextColor="#999"
+              style={[styles.input, errors.mobileNumber && styles.inputError]}
+              value={formData.mobileNumber}
+              onChangeText={(text) =>
+                setFormData({ ...formData, mobileNumber: text })
+              }
+              keyboardType="phone-pad"
+              maxLength={10}
+              editable={!loading}
+            />
+            {errors.mobileNumber && (
+              <Text style={styles.errorText}>{errors.mobileNumber}</Text>
+            )}
+          </View>
 
-        {/* Guest Login */}
-        <TouchableOpacity
-          style={styles.guestButton}
-          onPress={handleGuestLogin}
-          disabled={loading}
-        >
-          <Text style={styles.guestButtonText}>Continue as Guest</Text>
-        </TouchableOpacity>
+          {/* Email */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              placeholder="Enter your email"
+              placeholderTextColor="#999"
+              style={[styles.input, errors.email && styles.inputError]}
+              value={formData.email}
+              onChangeText={(text) => setFormData({ ...formData, email: text })}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!loading}
+            />
+            {errors.email && (
+              <Text style={styles.errorText}>{errors.email}</Text>
+            )}
+          </View>
 
-        {/* Divider */}
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
+          {/* Department (optional) */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Department (Optional)</Text>
+            <TextInput
+              placeholder="Enter your department"
+              placeholderTextColor="#999"
+              style={styles.input}
+              value={formData.department}
+              onChangeText={(text) =>
+                setFormData({ ...formData, department: text })
+              }
+              editable={!loading}
+            />
+          </View>
 
-        {/* Sign Up Link */}
-        <TouchableOpacity
-          onPress={() => router.push("/register")}
-          disabled={loading}
-        >
-          <Text style={styles.link}>Don't have an account? Sign Up</Text>
-        </TouchableOpacity>
+          {/* Password */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Password</Text>
+            <TextInput
+              placeholder="Create a password"
+              placeholderTextColor="#999"
+              style={[styles.input, errors.password && styles.inputError]}
+              secureTextEntry
+              value={formData.password}
+              onChangeText={(text) =>
+                setFormData({ ...formData, password: text })
+              }
+              editable={!loading}
+            />
+            {errors.password && (
+              <Text style={styles.errorText}>{errors.password}</Text>
+            )}
+          </View>
 
-        {/* Demo credentials */}
-        <View style={styles.demoHint}>
-          <Text style={styles.demoText}>
-            For testing: use any email & password
+          {/* Confirm Password */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Confirm Password</Text>
+            <TextInput
+              placeholder="Confirm your password"
+              placeholderTextColor="#999"
+              style={[
+                styles.input,
+                errors.confirmPassword && styles.inputError,
+              ]}
+              secureTextEntry
+              value={formData.confirmPassword}
+              onChangeText={(text) =>
+                setFormData({ ...formData, confirmPassword: text })
+              }
+              editable={!loading}
+            />
+            {errors.confirmPassword && (
+              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+            )}
+          </View>
+
+          {/* Signup Button */}
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleSignup}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Create Account</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Login Link */}
+          <View style={styles.loginContainer}>
+            <Text style={styles.loginText}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("Login")} disabled={loading}>
+              <Text style={styles.loginLink}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Info Text */}
+          <Text style={styles.infoText}>
+            All new accounts are created with Developer role access
           </Text>
-          <Text style={styles.demoText}>
-            Or continue as guest for offline use
-          </Text>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -190,10 +342,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   content: {
-    flex: 1,
-    justifyContent: "center",
     padding: 24,
+    paddingTop: 40,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 32,
@@ -206,14 +361,57 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     textAlign: "center",
-    marginBottom: 40,
+    marginBottom: 20,
+  },
+  roleBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+  roleIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  roleIcon: {
+    fontSize: 24,
+    color: "#fff",
+  },
+  roleBannerText: {
+    flex: 1,
+  },
+  roleBannerTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#1a1a1a",
+    marginBottom: 2,
+  },
+  roleBannerDesc: {
+    fontSize: 13,
+    color: "#666",
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+    marginLeft: 4,
   },
   input: {
     borderWidth: 1.5,
     borderColor: "#e0e0e0",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 8,
+    padding: 14,
+    borderRadius: 10,
     fontSize: 16,
     backgroundColor: "#f9f9f9",
   },
@@ -224,15 +422,20 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#ff6b6b",
     fontSize: 12,
-    marginBottom: 16,
+    marginTop: 4,
     marginLeft: 4,
   },
   button: {
-    backgroundColor: "#1a1a1a",
+    backgroundColor: "#28a745", // Developer role color
     padding: 16,
-    borderRadius: 12,
-    marginTop: 8,
-    marginBottom: 12,
+    borderRadius: 10,
+    marginTop: 24,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   buttonDisabled: {
     backgroundColor: "#666",
@@ -244,52 +447,26 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-  guestButton: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#e0e0e0",
-    marginBottom: 20,
-  },
-  guestButtonText: {
-    color: "#666",
-    textAlign: "center",
-    fontWeight: "500",
-    fontSize: 16,
-  },
-  divider: {
+  loginContainer: {
     flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    marginVertical: 24,
+    marginTop: 8,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#e0e0e0",
-  },
-  dividerText: {
-    color: "#999",
-    paddingHorizontal: 16,
+  loginText: {
+    color: "#666",
     fontSize: 14,
   },
-  link: {
-    textAlign: "center",
+  loginLink: {
     color: "#2196F3",
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
   },
-  demoHint: {
-    marginTop: 30,
-    padding: 16,
-    backgroundColor: "#f0f7ff",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#cce5ff",
-  },
-  demoText: {
-    fontSize: 13,
-    color: "#0066cc",
+  infoText: {
     textAlign: "center",
-    marginBottom: 4,
+    color: "#999",
+    fontSize: 12,
+    marginTop: 20,
+    fontStyle: "italic",
   },
 });

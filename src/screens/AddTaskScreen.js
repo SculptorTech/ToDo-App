@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Modal,
   Platform,
   SafeAreaView,
@@ -18,15 +19,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  autoPriority,
-  createTask,
-  enhanceTask,
-  generateDescription,
-  planWithSchedule,
-  testGroqConnection,
-} from "../../app/services/api";
+// import {
+//   autoPriority,
+//   createTask,
+//   enhanceTask,
+//   generateDescription,
+//   planWithSchedule,
+//   testGroqConnection,
+// } from "../../app/services/api";
 import { getTasks, saveTasks } from "../utils/storage";
+import { getEmployees } from "../utils/employeeStorage"; // Import the employee storage
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -46,6 +48,14 @@ export default function AddTaskScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [pickerMode, setPickerMode] = useState("date");
   const [showFilterOptions, setShowFilterOptions] = useState(false);
+
+  // Employee assignment states - now using real data from storage
+  const [assignedTo, setAssignedTo] = useState(null);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employees, setEmployees] = useState([]);
+  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
 
   // Voice recording states
   const [recording, setRecording] = useState(null);
@@ -74,6 +84,54 @@ export default function AddTaskScreen() {
   const recordingInterval = useRef(null);
   const isMounted = useRef(true);
   const descriptionRef = useRef(null);
+
+  // Load employees from storage on mount and when screen focuses
+  useEffect(() => {
+    loadEmployees();
+  }, []);
+
+  // Also reload when the screen comes into focus (in case employees were added/edited)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadEmployees();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadEmployees = async () => {
+    try {
+      setLoadingEmployees(true);
+      const employeesData = await getEmployees();
+      // Filter only active employees
+      const activeEmployees = employeesData.filter(
+        (emp) => emp.status === "active",
+      );
+      setEmployees(activeEmployees);
+      setFilteredEmployees(activeEmployees);
+      console.log("Loaded employees:", activeEmployees.length);
+    } catch (error) {
+      console.error("Error loading employees:", error);
+      Alert.alert("Error", "Failed to load employees list");
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  // Filter employees based on search
+  useEffect(() => {
+    if (employeeSearch.trim()) {
+      const filtered = employees.filter(
+        (emp) =>
+          emp.name.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+          emp.roleName.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+          emp.email.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+          emp.department?.toLowerCase().includes(employeeSearch.toLowerCase()),
+      );
+      setFilteredEmployees(filtered);
+    } else {
+      setFilteredEmployees(employees);
+    }
+  }, [employeeSearch, employees]);
 
   // Helper function to clean API response
   const cleanApiResponse = (apiText) => {
@@ -108,7 +166,8 @@ export default function AddTaskScreen() {
     console.log("Cleaned description:", cleaned);
     return cleaned;
   };
-  // Add this function before the return statement
+
+  // Test GROQ function
   const testGroq = async () => {
     const result = await testGroqConnection();
     if (result.success) {
@@ -523,9 +582,37 @@ export default function AddTaskScreen() {
     }
   };
 
+  // Employee selection functions
+  const selectEmployee = (employee) => {
+    setAssignedTo({
+      id: employee.id,
+      name: employee.name,
+      role: employee.roleName,
+      avatar: employee.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .substring(0, 2),
+      email: employee.email,
+      department: employee.department,
+    });
+    setShowEmployeeModal(false);
+    setEmployeeSearch("");
+  };
+
+  const clearAssignedEmployee = () => {
+    setAssignedTo(null);
+  };
+
   const addTask = async () => {
     if (!title.trim()) {
       Alert.alert("Error", "Please enter a task title");
+      return;
+    }
+
+    if (!assignedTo) {
+      Alert.alert("Error", "Please assign this task to an employee");
       return;
     }
 
@@ -558,6 +645,7 @@ export default function AddTaskScreen() {
       setShowAiOptions(false);
       setShowDescriptionModal(false);
       setShowFilterOptions(false);
+      setShowEmployeeModal(false);
 
       const existing = await getTasks();
 
@@ -567,6 +655,11 @@ export default function AddTaskScreen() {
         description: description.trim(),
         priority,
         dueDate: date.toISOString(),
+        assignedTo: assignedTo,
+        assignedToId: assignedTo.id,
+        assignedToName: assignedTo.name,
+        assignedToRole: assignedTo.role,
+        assignedToEmail: assignedTo.email,
         voiceNote: recognizedText || null,
         recordings: recordings.length > 0 ? recordings.map((r) => r.uri) : [],
         completed: false,
@@ -597,6 +690,7 @@ export default function AddTaskScreen() {
       setShowAiOptions(false);
       setShowDescriptionModal(false);
       setShowFilterOptions(false);
+      setShowEmployeeModal(false);
 
       setTitle("");
       setDescription("");
@@ -605,6 +699,7 @@ export default function AddTaskScreen() {
       setRecordings([]);
       setVoiceError("");
       setPriority("Normal");
+      setAssignedTo(null);
 
       const now = new Date();
       now.setHours(now.getHours() + 1);
@@ -725,6 +820,48 @@ export default function AddTaskScreen() {
             maxLength={100}
             placeholderTextColor="#999"
           />
+        </View>
+
+        {/* Assign To Section - Now using real employee data */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Assign To *</Text>
+            {assignedTo && (
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={clearAssignedEmployee}
+              >
+                <Ionicons name="close-circle" size={20} color="#FF3B30" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.assignButton}
+            onPress={() => setShowEmployeeModal(true)}
+            activeOpacity={0.7}
+          >
+            {assignedTo ? (
+              <View style={styles.selectedEmployee}>
+                <View style={styles.selectedEmployeeAvatar}>
+                  <Text style={styles.selectedEmployeeAvatarText}>
+                    {assignedTo.avatar}
+                  </Text>
+                </View>
+                <View style={styles.employeeInfo}>
+                  <Text style={styles.employeeName}>{assignedTo.name}</Text>
+                  <Text style={styles.employeeRole}>{assignedTo.role}</Text>
+                </View>
+                <Ionicons name="chevron-down" size={20} color="#666" />
+              </View>
+            ) : (
+              <View style={styles.assignPlaceholder}>
+                <Ionicons name="person-add-outline" size={20} color="#007AFF" />
+                <Text style={styles.assignPlaceholderText}>
+                  Tap to assign to an employee
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Filter Button for Priority & Due Date */}
@@ -941,71 +1078,195 @@ export default function AddTaskScreen() {
       </ScrollView>
 
       {/* Floating AI Button */}
-{title.trim() && title.length > 3 && (
-  <TouchableOpacity
-    style={styles.floatingAiButton}
-    onPress={() => setShowAiOptions(!showAiOptions)}
-  >
-    {/* Fixed: "sparkles" is the correct name */}
-    <Ionicons name="sparkles" size={24} color="#fff" />
-    
-    {showAiOptions && (
-      <View style={styles.aiOptionsPanel}>
+      {title.trim() && title.length > 3 && (
         <TouchableOpacity
-          style={[styles.aiOption, styles.generateOption]}
-          onPress={handleGenerateDescription}
-          disabled={isGeneratingAI}
+          style={styles.floatingAiButton}
+          onPress={() => setShowAiOptions(!showAiOptions)}
         >
-          <Ionicons name="document-text-outline" size={18} color="#007AFF" />
-          <Text style={styles.aiOptionText}>Generate Description</Text>
-        </TouchableOpacity>
+          <Ionicons name="sparkles" size={24} color="#fff" />
 
-        <TouchableOpacity
-          style={[styles.aiOption, styles.enhanceOption]}
-          onPress={handleEnhanceTask}
-          disabled={isGeneratingAI}
-        >
-          <Ionicons name="star-outline" size={18} color="#5856D6" />
-          <Text style={styles.aiOptionText}>Enhance Task</Text>
-        </TouchableOpacity>
+          {showAiOptions && (
+            <View style={styles.aiOptionsPanel}>
+              <TouchableOpacity
+                style={[styles.aiOption, styles.generateOption]}
+                onPress={handleGenerateDescription}
+                disabled={isGeneratingAI}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={18}
+                  color="#007AFF"
+                />
+                <Text style={styles.aiOptionText}>Generate Description</Text>
+              </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.aiOption, styles.scheduleOption]}
-          onPress={handlePlanWithSchedule}
-          disabled={isGeneratingAI}
-        >
-          <Ionicons name="calendar-outline" size={18} color="#34C759" />
-          <Text style={styles.aiOptionText}>Plan with Schedule</Text>
-        </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.aiOption, styles.enhanceOption]}
+                onPress={handleEnhanceTask}
+                disabled={isGeneratingAI}
+              >
+                <Ionicons name="star-outline" size={18} color="#5856D6" />
+                <Text style={styles.aiOptionText}>Enhance Task</Text>
+              </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.aiOption, styles.priorityOption]}
-          onPress={handleAutoPriority}
-          disabled={isGeneratingAI}
-        >
-          <Ionicons name="flag-outline" size={18} color="#FF9500" />
-          <Text style={styles.aiOptionText}>Auto Priority</Text>
-        </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.aiOption, styles.scheduleOption]}
+                onPress={handlePlanWithSchedule}
+                disabled={isGeneratingAI}
+              >
+                <Ionicons name="calendar-outline" size={18} color="#34C759" />
+                <Text style={styles.aiOptionText}>Plan with Schedule</Text>
+              </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.aiOption, styles.createOption]}
-          onPress={handleCreateTaskWithAI}
-          disabled={isGeneratingAI}
-        >
-          <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
-          <Text style={styles.aiOptionText}>Create Task with AI</Text>
+              <TouchableOpacity
+                style={[styles.aiOption, styles.priorityOption]}
+                onPress={handleAutoPriority}
+                disabled={isGeneratingAI}
+              >
+                <Ionicons name="flag-outline" size={18} color="#FF9500" />
+                <Text style={styles.aiOptionText}>Auto Priority</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.aiOption, styles.createOption]}
+                onPress={handleCreateTaskWithAI}
+                disabled={isGeneratingAI}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
+                <Text style={styles.aiOptionText}>Create Task with AI</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </TouchableOpacity>
-      </View>
-    )}
-  </TouchableOpacity>
-)}
+      )}
+
+      {/* Employee Selection Modal - Now using real employee data */}
+      <Modal
+        visible={showEmployeeModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowEmployeeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.employeeModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Employee</Text>
+              <TouchableOpacity onPress={() => setShowEmployeeModal(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View style={styles.searchContainer}>
+              <Ionicons
+                name="search-outline"
+                size={20}
+                color="#999"
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name, role, or email..."
+                value={employeeSearch}
+                onChangeText={setEmployeeSearch}
+                placeholderTextColor="#999"
+              />
+              {employeeSearch ? (
+                <TouchableOpacity onPress={() => setEmployeeSearch("")}>
+                  <Ionicons name="close-circle" size={20} color="#999" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* Loading Indicator */}
+            {loadingEmployees ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={styles.loadingText}>Loading employees...</Text>
+              </View>
+            ) : (
+              /* Employees List */
+              <FlatList
+                data={filteredEmployees}
+                keyExtractor={(item) => item.id}
+                style={styles.employeesList}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.employeeItem}
+                    onPress={() => selectEmployee(item)}
+                  >
+                    <View style={styles.employeeItemAvatar}>
+                      <Text style={styles.employeeItemAvatarText}>
+                        {item.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .toUpperCase()
+                          .substring(0, 2)}
+                      </Text>
+                    </View>
+                    <View style={styles.employeeItemInfo}>
+                      <Text style={styles.employeeItemName}>{item.name}</Text>
+                      <Text style={styles.employeeItemRole}>
+                        {item.roleName}
+                      </Text>
+                      <Text style={styles.employeeItemEmail}>{item.email}</Text>
+                      {item.department && (
+                        <Text style={styles.employeeItemDepartment}>
+                          {item.department}
+                        </Text>
+                      )}
+                    </View>
+                    {assignedTo?.id === item.id && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={24}
+                        color="#4CAF50"
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyList}>
+                    <Ionicons name="people-outline" size={50} color="#ccc" />
+                    <Text style={styles.emptyListText}>No employees found</Text>
+                    <TouchableOpacity
+                      style={styles.addEmployeeButton}
+                      onPress={() => {
+                        setShowEmployeeModal(false);
+                        navigation.navigate("Roles");
+                      }}
+                    >
+                      <Text style={styles.addEmployeeButtonText}>
+                        Add Employee in Roles
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                }
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setShowEmployeeModal(false)}
+            >
+              <Text style={styles.closeModalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Fixed Add Task Button */}
       <View style={styles.fixedActionBar}>
         <TouchableOpacity
-          style={[styles.addButton, !title.trim() && styles.buttonDisabled]}
+          style={[
+            styles.addButton,
+            (!title.trim() || !assignedTo || isGeneratingAI) &&
+              styles.buttonDisabled,
+          ]}
           onPress={addTask}
-          disabled={!title.trim() || isGeneratingAI}
+          disabled={!title.trim() || !assignedTo || isGeneratingAI}
         >
           {isGeneratingAI ? (
             <ActivityIndicator color="#fff" />
@@ -1254,6 +1515,7 @@ export default function AddTaskScreen() {
   );
 }
 
+// Add new styles for employee avatars and loading
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1320,6 +1582,180 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#fff",
     color: "#1a1a1a",
+  },
+  // Assign To Styles
+  assignButton: {
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+    borderRadius: 10,
+    padding: 12,
+    backgroundColor: "#fafafa",
+  },
+  selectedEmployee: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectedEmployeeAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  selectedEmployeeAvatarText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  employeeInfo: {
+    flex: 1,
+  },
+  employeeName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+  employeeRole: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
+  assignPlaceholder: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 4,
+  },
+  assignPlaceholderText: {
+    fontSize: 15,
+    color: "#007AFF",
+    marginLeft: 8,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  // Modal Overlay
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  employeeModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    width: "90%",
+    maxHeight: "80%",
+    padding: 20,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#1a1a1a",
+  },
+  employeesList: {
+    maxHeight: 400,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: "#666",
+  },
+  employeeItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  employeeItemAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  employeeItemAvatarText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  employeeItemInfo: {
+    flex: 1,
+  },
+  employeeItemName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+  employeeItemRole: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
+  employeeItemEmail: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
+  },
+  employeeItemDepartment: {
+    fontSize: 12,
+    color: "#4CAF50",
+    marginTop: 2,
+  },
+  emptyList: {
+    alignItems: "center",
+    padding: 40,
+  },
+  emptyListText: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 10,
+  },
+  addEmployeeButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+  },
+  addEmployeeButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  closeModalButton: {
+    backgroundColor: "#f0f0f0",
+    padding: 16,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  closeModalButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#666",
   },
   filterButton: {
     flexDirection: "row",
