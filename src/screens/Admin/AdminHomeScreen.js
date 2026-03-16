@@ -14,10 +14,7 @@ import {
 } from "react-native";
 import {
   clearCurrentUser,
-  getProjects,
-  getTasks,
-  getTeams,
-  getUsers,
+  getRequest
 } from "../../services/apiService";
 
 export default function AdminHomeScreen({ navigation, route }) {
@@ -31,47 +28,112 @@ export default function AdminHomeScreen({ navigation, route }) {
   const [recentProjects, setRecentProjects] = useState([]);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [slideAnim] = useState(new Animated.Value(-300));
+  const [loading, setLoading] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
-      loadStats();
-      loadRecentProjects();
+      loadDashboardData();
     }, []),
   );
 
-  const loadStats = async () => {
-    const projects = await getProjects();
-    const users = await getUsers();
-    const tasks = await getTasks();
-    const teams = await getTeams();
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadStats(), loadRecentProjects()]);
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    setStats({
-      projects: projects.length,
-      users: users.length,
-      tasks: tasks.length,
-      teams: teams.length,
-    });
+  const loadStats = async () => {
+    try {
+      // Load projects
+      const projectsResponse = await getRequest("/project/get-projects");
+      const projects = projectsResponse.projects || projectsResponse || [];
+
+      // Load users
+      const usersResponse = await getRequest("/user/getusers");
+      const users = usersResponse.users || usersResponse || [];
+
+      // Load tasks (if you have tasks endpoint)
+      let tasks = [];
+      try {
+        const tasksResponse = await getRequest("/task/get-tasks");
+        tasks = tasksResponse.tasks || tasksResponse || [];
+      } catch (error) {
+        console.warn("Tasks not loaded:", error);
+      }
+
+      // Load teams (if you have teams endpoint)
+      let teams = [];
+      try {
+       // const teamsResponse = await getRequest("/team/get-teams");
+        teams = teamsResponse.teams || teamsResponse || [];
+      } catch (error) {
+        console.warn("Teams not loaded:", error);
+      }
+
+      setStats({
+        projects: projects.length,
+        users: users.length,
+        tasks: tasks.length,
+        teams: teams.length,
+      });
+    } catch (error) {
+      console.error("Error loading stats:", error);
+    }
   };
 
   const loadRecentProjects = async () => {
-    const projects = await getProjects();
-    // Get all projects sorted by creation date (newest first)
-    const sorted = projects.sort(
-      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
-    );
-    setRecentProjects(sorted);
+    try {
+      const response = await getRequest("/project/get-projects");
+
+      // Handle different response structures
+      let projects = [];
+      if (response.projects) {
+        projects = response.projects;
+      } else if (Array.isArray(response)) {
+        projects = response;
+      } else {
+        projects = [];
+      }
+
+      // Map projects to the format expected by the UI
+      const mappedProjects = projects.map((project) => ({
+        id: project.ProjectId || project.projectId || project.id,
+        name: project.Name || project.name || "Untitled Project",
+        client: project.Client || project.client || "N/A",
+        status: project.Status || project.status || "planning",
+        priority: project.Priority || project.priority || "Medium",
+        startDate: project.StartDate || project.startDate,
+        endDate: project.EndDate || project.endDate,
+        progress: project.Progress || project.progress || 0,
+        createdAt:
+          project.CreatedAt || project.createdAt || new Date().toISOString(),
+      }));
+
+      // Sort by creation date (newest first)
+      const sorted = mappedProjects.sort(
+        (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+      );
+
+      setRecentProjects(sorted);
+    } catch (error) {
+      console.error("Error loading projects:", error);
+      setRecentProjects([]);
+    }
   };
 
   const toggleDrawer = () => {
     if (drawerVisible) {
-      // Close drawer
       Animated.timing(slideAnim, {
         toValue: -300,
         duration: 300,
         useNativeDriver: true,
       }).start(() => setDrawerVisible(false));
     } else {
-      // Open drawer
       setDrawerVisible(true);
       Animated.timing(slideAnim, {
         toValue: 0,
@@ -135,8 +197,7 @@ export default function AdminHomeScreen({ navigation, route }) {
     }
   };
 
-  // Drawer menu items - Keeping designed screens with database connections
-  // Commented out Analytics and Manage Teams for now
+  // Drawer menu items
   const drawerMenuItems = [
     {
       id: "1",
@@ -159,24 +220,9 @@ export default function AdminHomeScreen({ navigation, route }) {
       screen: "RoleManagement",
       iconBg: "#FF9800",
     },
-    // {
-    //   id: "5",
-    //   title: "Analytics",
-    //   icon: "📊",
-    //   screen: "Analytics",
-    //   iconBg: "#FF9800",
-    // },
-    // {
-    //   id: "7",
-    //   title: "Manage Teams",
-    //   icon: "👥",
-    //   screen: "ManageTeams",
-    //   iconBg: "#FF9800",
-    // },
   ];
 
-  // Main dashboard cards - Keeping designed screens with database connections
-  // Commented out Analytics, Add People, and Manage Teams for now
+  // Main dashboard cards
   const dashboardCards = [
     {
       id: "1",
@@ -202,22 +248,6 @@ export default function AdminHomeScreen({ navigation, route }) {
       description: "Assign and manage user roles",
       color: "#4cc9f0",
     },
-    // {
-    //   id: "4",
-    //   title: "Analytics",
-    //   icon: "📊",
-    //   screen: "Analytics",
-    //   description: "View analytics and reports",
-    //   color: "#f8961e",
-    // },
-    // {
-    //   id: "6",
-    //   title: "Manage Teams",
-    //   icon: "👥",
-    //   screen: "ManageTeams",
-    //   description: "Create and manage teams",
-    //   color: "#7209b7",
-    // },
   ];
 
   return (
@@ -279,13 +309,9 @@ export default function AdminHomeScreen({ navigation, route }) {
 
               {/* Drawer Logout Button */}
               <TouchableOpacity
-                 style={styles.drawerLogoutButton}
-                  onPress={() => navigation.replace("Login")}
+                style={styles.drawerLogoutButton}
+                onPress={handleLogout}
               >
-
-
-
-
                 <View style={styles.drawerLogoutIcon}>
                   <Text style={styles.drawerLogoutIconText}>🚪</Text>
                 </View>
@@ -334,7 +360,7 @@ export default function AdminHomeScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Quick Access Cards - 3 per row */}
+        {/* Quick Access Cards */}
         <View style={styles.featuresContainer}>
           <Text style={styles.sectionTitle}>Quick Access</Text>
           <View style={styles.featuresGrid}>
@@ -361,11 +387,15 @@ export default function AdminHomeScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Recent Projects Section - Now shows all projects in scrollable view */}
+        {/* Recent Projects Section */}
         <View style={styles.projectsContainer}>
           <Text style={styles.sectionTitle}>Recent Projects</Text>
 
-          {recentProjects.length > 0 ? (
+          {loading ? (
+            <View style={styles.emptyProjects}>
+              <Text style={styles.emptyText}>Loading projects...</Text>
+            </View>
+          ) : recentProjects.length > 0 ? (
             recentProjects.map((project) => (
               <TouchableOpacity
                 key={project.id}
@@ -407,7 +437,9 @@ export default function AdminHomeScreen({ navigation, route }) {
                   <View style={styles.projectMeta}>
                     <Text style={styles.metaIcon}>📅</Text>
                     <Text style={styles.metaText}>
-                      {project.startDate || "Start date"}
+                      {project.startDate
+                        ? new Date(project.startDate).toLocaleDateString()
+                        : "Start date"}
                     </Text>
                   </View>
                   <View
@@ -424,7 +456,10 @@ export default function AdminHomeScreen({ navigation, route }) {
                         { color: getStatusColor(project.status) },
                       ]}
                     >
-                      {project.status || "Planning"}
+                      {project.status
+                        ? project.status.charAt(0).toUpperCase() +
+                          project.status.slice(1)
+                        : "Planning"}
                     </Text>
                   </View>
                 </View>

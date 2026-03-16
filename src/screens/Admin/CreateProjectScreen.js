@@ -13,8 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { addProject, getProjects } from "../../utils/storage";
-//import { getUsers } from "../../utils/userStorage"; // Assuming you have this utility
+import { getRequest, postRequest } from "../../services/apiService";
 
 export default function CreateProjectScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -35,51 +34,73 @@ export default function CreateProjectScreen({ navigation, route }) {
   const [showUserModal, setShowUserModal] = useState(false);
   const [isGeneratingId, setIsGeneratingId] = useState(false);
   const [projectIdError, setProjectIdError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [projects, setProjects] = useState([]);
 
-  // Load users from user management
+  // Load users and projects from API
   useEffect(() => {
     loadUsers();
-    generateProjectId(); // Auto-generate ID on screen load
+    loadProjects();
+    generateProjectId();
   }, []);
 
   const loadUsers = async () => {
     try {
-      const allUsers = await getUsers();
-      // Filter only active users or all users based on your needs
-      setUsers(allUsers.filter((u) => u.role !== "admin")); // Exclude admins if needed
+      const response = await getRequest("/user/getusers");
+      const usersData = response.users || response || [];
+
+      // Map user data to expected format
+      const mappedUsers = usersData.map((u) => ({
+        id: u.UserID || u.id,
+        UserID: u.UserID,
+        name:
+          u.FullName ||
+          u.fullName ||
+          `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+        firstName: u.firstName || "",
+        lastName: u.lastName || "",
+        email: u.EmailID || u.email,
+        role: u.RoleName || u.role || "Developer",
+        isActive: u.IsActive !== false,
+      }));
+
+      // Filter active users only
+      setUsers(mappedUsers.filter((u) => u.isActive));
     } catch (error) {
       console.error("Error loading users:", error);
+      Alert.alert("Error", "Failed to load users");
     }
   };
 
-  // Generate a unique project ID with custom constraints
+  const loadProjects = async () => {
+    try {
+      const response = await getRequest("/project/get-projects");
+      setProjects(response.projects || response || []);
+    } catch (error) {
+      console.error("Error loading projects:", error);
+      // Don't show alert here, just log
+    }
+  };
+
+  // Generate a unique project ID
   const generateProjectId = async () => {
     setIsGeneratingId(true);
     setProjectIdError("");
 
     try {
-      const projects = await getProjects();
-
-      // Format: PRJ-YYYY-XXX
-      // Constraints:
-      // - Must start with 'PRJ'
-      // - Followed by year
-      // - Followed by 3-digit sequential number
-      // - Total length between 11-15 characters
-
       const year = new Date().getFullYear();
       let sequence = 1;
 
-      // Find projects with valid ID format
       const validProjects = projects.filter((p) => {
-        const id = p.projectId || p.id || "";
+        const id = p.projectId || p.ProjectId || p.id || "";
         return id.startsWith("PRJ-") && id.includes(year.toString());
       });
 
       if (validProjects.length > 0) {
         const sequences = validProjects
           .map((p) => {
-            const parts = (p.projectId || p.id || "").split("-");
+            const projectId = p.projectId || p.ProjectId || p.id || "";
+            const parts = projectId.split("-");
             return parts.length === 3 ? parseInt(parts[2]) : 0;
           })
           .filter((seq) => !isNaN(seq) && seq > 0);
@@ -89,16 +110,13 @@ export default function CreateProjectScreen({ navigation, route }) {
         }
       }
 
-      // Ensure sequence is within 3 digits (1-999)
       if (sequence > 999) {
-        sequence = 1; // Reset if we exceed 999
+        sequence = 1;
       }
 
-      // Pad sequence to 3 digits
       const paddedSequence = sequence.toString().padStart(3, "0");
       const generatedId = `PRJ-${year}-${paddedSequence}`;
 
-      // Validate ID constraints
       if (validateProjectId(generatedId)) {
         setFormData((prev) => ({ ...prev, projectId: generatedId }));
       }
@@ -112,13 +130,6 @@ export default function CreateProjectScreen({ navigation, route }) {
 
   // Validate project ID format
   const validateProjectId = (id) => {
-    // Constraints:
-    // 1. Must start with 'PRJ'
-    // 2. Format: PRJ-YYYY-NNN (where NNN is 3 digits)
-    // 3. Length between 11-15 characters
-    // 4. Year must be current or future year
-    // 5. Sequence must be 3 digits
-
     const pattern = /^PRJ-(20\d{2})-\d{3}$/;
 
     if (!pattern.test(id)) {
@@ -161,7 +172,6 @@ export default function CreateProjectScreen({ navigation, route }) {
 
   // Handle manual project ID change
   const handleProjectIdChange = (text) => {
-    // Auto-format to uppercase
     const formatted = text.toUpperCase();
     setFormData((prev) => ({ ...prev, projectId: formatted }));
     validateProjectId(formatted);
@@ -222,14 +232,6 @@ export default function CreateProjectScreen({ navigation, route }) {
     return true;
   };
 
-  // Check if project ID is unique
-  const isProjectIdUnique = async (projectId) => {
-    const projects = await getProjects();
-    return !projects.some(
-      (p) => (p.projectId || p.id)?.toUpperCase() === projectId.toUpperCase(),
-    );
-  };
-
   const handleCreateProject = async () => {
     // Validation
     if (!formData.projectId.trim()) {
@@ -241,16 +243,6 @@ export default function CreateProjectScreen({ navigation, route }) {
       Alert.alert(
         "Validation Error",
         projectIdError || "Invalid project ID format",
-      );
-      return;
-    }
-
-    // Check uniqueness
-    const isUnique = await isProjectIdUnique(formData.projectId);
-    if (!isUnique) {
-      Alert.alert(
-        "Validation Error",
-        "Project ID already exists. Please use a unique ID.",
       );
       return;
     }
@@ -268,120 +260,105 @@ export default function CreateProjectScreen({ navigation, route }) {
       return;
     }
 
-    if (formData.name.length > 100) {
-      Alert.alert(
-        "Validation Error",
-        "Project name cannot exceed 100 characters",
-      );
-      return;
-    }
-
     if (!formData.client.trim()) {
       Alert.alert("Validation Error", "Client name is required");
       return;
     }
 
-    if (formData.client.length < 2) {
-      Alert.alert(
-        "Validation Error",
-        "Client name must be at least 2 characters",
-      );
-      return;
-    }
-
-    // Validate dates
     if (!validateDates(formData.startDate, formData.endDate)) {
       return;
     }
 
-    // Validate budget
     if (!validateBudget(formData.budget)) {
       return;
     }
 
-    // Validate description length
-    if (formData.description && formData.description.length > 500) {
-      Alert.alert(
-        "Validation Error",
-        "Description cannot exceed 500 characters",
-      );
-      return;
-    }
-
-    // Validate assigned user
     if (!formData.assignedTo) {
       Alert.alert("Validation Error", "Please assign the project to a user");
       return;
     }
 
+    setIsLoading(true);
+
     try {
-      // Create project object with ID
-      const project = {
-        projectId: formData.projectId.toUpperCase(), // Custom formatted ID
-        id: Date.now().toString(), // Keep numeric ID for internal use
-        name: formData.name.trim(),
-        description: formData.description.trim() || "No description provided",
-        client: formData.client.trim(),
-        startDate: formData.startDate || new Date().toISOString().split("T")[0],
-        endDate:
+      // Prepare project data for backend
+      const projectData = {
+        ProjectId: formData.projectId.toUpperCase(),
+        Name: formData.name.trim(),
+        Description: formData.description.trim() || "No description provided",
+        Client: formData.client.trim(),
+        StartDate: formData.startDate || new Date().toISOString().split("T")[0],
+        EndDate:
           formData.endDate ||
           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
             .toISOString()
             .split("T")[0],
-        budget: formData.budget ? parseFloat(formData.budget) : 0,
-        status: formData.status,
-        progress: 0,
-        createdBy: user?.id || "1",
-        createdByName: user?.name || user?.firstName || "Admin",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tasks: [],
-        teams: [],
-        members: [formData.assignedTo], // Add assigned user to members
-        assignedTo: formData.assignedTo, // Store assigned user
-        // Additional metadata
-        taskCount: 0,
-        memberCount: 1,
-        completedTasks: 0,
+        Budget: formData.budget ? parseFloat(formData.budget) : 0,
+        Status: formData.status,
+        CreatedBy: user?.UserID || user?.id || "1",
+        CreatedByName: user?.name || user?.firstName || "Admin",
+        AssignedTo: formData.assignedTo.UserID || formData.assignedTo.id,
       };
 
-      console.log("📝 Creating project:", project);
-      const result = await addProject(project);
+      console.log("📝 Creating project:", projectData);
 
-      if (result) {
-        Alert.alert(
-          "✅ Success",
-          `Project "${formData.name}" created successfully!\n\nProject ID: ${formData.projectId}\nAssigned to: ${formData.assignedTo.name}`,
-          [
-            {
-              text: "Back to Dashboard",
-              onPress: () => navigation.navigate("AdminHome", { user }),
-            },
-            {
-              text: "Create Another",
-              onPress: () => {
-                setFormData({
-                  name: "",
-                  description: "",
-                  startDate: "",
-                  endDate: "",
-                  budget: "",
-                  status: "planning",
-                  client: "",
-                  assignedTo: null,
-                  projectId: "",
-                });
-                generateProjectId(); // Generate new ID for next project
-              },
-            },
-          ],
-        );
-      } else {
-        Alert.alert("Error", "Failed to create project");
+      // Create project via API using generic postRequest
+      const result = await postRequest("/project/create-project", projectData);
+
+      // If project created successfully and has an ID, assign the user
+      if (result && (result.projectId || result.ProjectId || result.id)) {
+        const projectId = result.projectId || result.ProjectId || result.id;
+
+        try {
+          // Assign user to project using generic postRequest
+          await postRequest("/project/assign-user", {
+            projectId: projectId,
+            userId: formData.assignedTo.UserID || formData.assignedTo.id,
+          });
+        } catch (assignError) {
+          console.warn(
+            "Project created but user assignment failed:",
+            assignError,
+          );
+          // Don't fail the whole operation, just warn
+        }
       }
+
+      Alert.alert(
+        "✅ Success",
+        `Project "${formData.name}" created successfully!\n\nProject ID: ${formData.projectId}\nAssigned to: ${formData.assignedTo.name}`,
+        [
+          {
+            text: "Back to Dashboard",
+            onPress: () => navigation.navigate("AdminHome", { user }),
+          },
+          {
+            text: "Create Another",
+            onPress: () => {
+              setFormData({
+                name: "",
+                description: "",
+                startDate: "",
+                endDate: "",
+                budget: "",
+                status: "planning",
+                client: "",
+                assignedTo: null,
+                projectId: "",
+              });
+              generateProjectId();
+            },
+          },
+        ],
+      );
     } catch (error) {
       console.error("Error creating project:", error);
-      Alert.alert("Error", "An unexpected error occurred");
+      Alert.alert(
+        "Error",
+        error.response?.data?.message || "Failed to create project",
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -422,7 +399,7 @@ export default function CreateProjectScreen({ navigation, route }) {
 
           <FlatList
             data={users}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.id?.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={[
@@ -505,11 +482,12 @@ export default function CreateProjectScreen({ navigation, route }) {
                 placeholderTextColor="#adb5bd"
                 maxLength={15}
                 autoCapitalize="characters"
+                editable={!isLoading}
               />
               <TouchableOpacity
                 style={styles.generateButton}
                 onPress={generateProjectId}
-                disabled={isGeneratingId}
+                disabled={isGeneratingId || isLoading}
               >
                 <Text style={styles.generateButtonText}>
                   {isGeneratingId ? "..." : "🔄"}
@@ -537,6 +515,7 @@ export default function CreateProjectScreen({ navigation, route }) {
               placeholder="e.g., E-Commerce Mobile App"
               placeholderTextColor="#adb5bd"
               maxLength={100}
+              editable={!isLoading}
             />
             <Text style={styles.charCount}>{formData.name.length}/100</Text>
           </View>
@@ -555,6 +534,7 @@ export default function CreateProjectScreen({ navigation, route }) {
               placeholder="Client name"
               placeholderTextColor="#adb5bd"
               maxLength={50}
+              editable={!isLoading}
             />
             <Text style={styles.charCount}>{formData.client.length}/50</Text>
           </View>
@@ -567,6 +547,7 @@ export default function CreateProjectScreen({ navigation, route }) {
             <TouchableOpacity
               style={styles.assignButton}
               onPress={() => setShowUserModal(true)}
+              disabled={isLoading}
             >
               {formData.assignedTo ? (
                 <View style={styles.selectedUser}>
@@ -609,6 +590,7 @@ export default function CreateProjectScreen({ navigation, route }) {
               numberOfLines={4}
               textAlignVertical="top"
               maxLength={500}
+              editable={!isLoading}
             />
             <Text style={styles.charCount}>
               {formData.description.length}/500
@@ -628,6 +610,7 @@ export default function CreateProjectScreen({ navigation, route }) {
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor="#adb5bd"
                 maxLength={10}
+                editable={!isLoading}
               />
             </View>
 
@@ -642,6 +625,7 @@ export default function CreateProjectScreen({ navigation, route }) {
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor="#adb5bd"
                 maxLength={10}
+                editable={!isLoading}
               />
             </View>
           </View>
@@ -659,6 +643,7 @@ export default function CreateProjectScreen({ navigation, route }) {
               placeholderTextColor="#adb5bd"
               keyboardType="numeric"
               maxLength={10}
+              editable={!isLoading}
             />
           </View>
 
@@ -678,6 +663,7 @@ export default function CreateProjectScreen({ navigation, route }) {
                     },
                   ]}
                   onPress={() => setFormData({ ...formData, status: s })}
+                  disabled={isLoading}
                 >
                   <Text
                     style={[
@@ -701,15 +687,19 @@ export default function CreateProjectScreen({ navigation, route }) {
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => navigation.goBack()}
+              disabled={isLoading}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.createButton}
+              style={[styles.createButton, isLoading && styles.disabledButton]}
               onPress={handleCreateProject}
+              disabled={isLoading}
             >
-              <Text style={styles.createButtonText}>Create Project →</Text>
+              <Text style={styles.createButtonText}>
+                {isLoading ? "Creating..." : "Create Project →"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -949,6 +939,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   createButtonText: {
     color: "#fff",

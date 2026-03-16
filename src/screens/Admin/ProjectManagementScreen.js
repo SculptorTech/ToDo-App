@@ -1,5 +1,3 @@
-// src/screens/admin/ProjectManagementScreen.js
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import {
@@ -12,29 +10,35 @@ import {
   View,
 } from "react-native";
 
+import { getRequest, deleteRequest } from "../../services/apiService";
+
 export default function ProjectManagementScreen({ navigation, route }) {
   const { user } = route.params || {};
   const [projects, setProjects] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Load projects when screen focuses
+  /* ===============================
+     LOAD PROJECTS
+  =============================== */
+
   useFocusEffect(
     useCallback(() => {
       loadProjects();
-    }, []),
+    }, [])
   );
 
   const loadProjects = async () => {
     try {
-      console.log("📊 Loading projects...");
-      const rawData = await AsyncStorage.getItem("taskflow_projects");
-      console.log("📦 Raw data:", rawData);
+      console.log("📊 Fetching projects from API");
 
-      const data = rawData ? JSON.parse(rawData) : [];
-      console.log("✅ Projects loaded:", data.length);
-      setProjects(data);
+      const response = await getRequest("/project/get-projects");
+
+      console.log("API Response:", response);
+
+      setProjects(response.projects || []);
     } catch (error) {
       console.error("❌ Error loading projects:", error);
+      Alert.alert("Error", "Failed to load projects");
     }
   };
 
@@ -44,67 +48,44 @@ export default function ProjectManagementScreen({ navigation, route }) {
     setRefreshing(false);
   };
 
-  const handleDelete = (projectId, projectName) => {
-    console.log("🗑️ Delete clicked for:", projectName, "ID:", projectId);
+  /* ===============================
+     DELETE PROJECT
+  =============================== */
 
+  const handleDelete = (projectId, projectName) => {
     Alert.alert(
       "Delete Project",
-      `Are you sure you want to delete "${projectName}"?\n\nThis will also delete all tasks associated with this project.`,
+      `Are you sure you want to delete "${projectName}"?`,
       [
         { text: "Cancel", style: "cancel" },
+
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
             try {
-              console.log("✅ Delete confirmed");
+              await deleteRequest(`/project/delete-project/${projectId}`);
 
-              // Get current projects
-              const rawData = await AsyncStorage.getItem("taskflow_projects");
-              const allProjects = JSON.parse(rawData || "[]");
-              console.log("📊 Before delete count:", allProjects.length);
+              setProjects(projects.filter((p) => p.ProjectId !== projectId));
 
-              // Filter out the project
-              const filtered = allProjects.filter((p) => p.id !== projectId);
-              console.log("📊 After filter count:", filtered.length);
-
-              // Save back to storage
-              await AsyncStorage.setItem(
-                "taskflow_projects",
-                JSON.stringify(filtered),
-              );
-              console.log("✅ Saved to storage");
-
-              // Also delete associated tasks
-              try {
-                const tasksData = await AsyncStorage.getItem("taskflow_tasks");
-                const allTasks = tasksData ? JSON.parse(tasksData) : [];
-                const remainingTasks = allTasks.filter(
-                  (t) => t.projectId !== projectId,
-                );
-                await AsyncStorage.setItem(
-                  "taskflow_tasks",
-                  JSON.stringify(remainingTasks),
-                );
-                console.log("✅ Associated tasks deleted");
-              } catch (taskError) {
-                console.error("Error deleting tasks:", taskError);
-              }
-
-              // Update state immediately
-              setProjects(filtered);
-
-              // Show success message
               Alert.alert("Success", "Project deleted successfully");
             } catch (error) {
-              console.error("❌ Error in delete:", error);
-              Alert.alert("Error", "Failed to delete: " + error.message);
+              console.error("❌ Delete error:", error);
+
+              Alert.alert(
+                "Error",
+                error.response?.data?.message || "Failed to delete project"
+              );
             }
           },
         },
-      ],
+      ]
     );
   };
+
+  /* ===============================
+     UI HELPERS
+  =============================== */
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -121,71 +102,45 @@ export default function ProjectManagementScreen({ navigation, route }) {
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case "high":
-        return "#f44336";
-      case "medium":
-        return "#ff9800";
-      case "low":
-        return "#4CAF50";
-      default:
-        return "#999";
-    }
-  };
+  /* ===============================
+     PROJECT CARD
+  =============================== */
 
   const renderProject = ({ item }) => (
     <View style={styles.projectCard}>
       <View style={styles.projectHeader}>
-        <Text style={styles.projectName}>{item.name}</Text>
+        <Text style={styles.projectName}>{item.Name}</Text>
+
         <View
           style={[
             styles.statusBadge,
-            { backgroundColor: getStatusColor(item.status) + "20" },
-          ]}
-        >
-          <Text
-            style={[styles.statusText, { color: getStatusColor(item.status) }]}
-          >
-            {item.status
-              ? item.status.charAt(0).toUpperCase() + item.status.slice(1)
-              : "Unknown"}
-          </Text>
-        </View>
-      </View>
-
-      <Text style={styles.client}>Client: {item.client || "N/A"}</Text>
-
-      {item.description ? (
-        <Text style={styles.description} numberOfLines={2}>
-          {item.description}
-        </Text>
-      ) : null}
-
-      <View style={styles.dates}>
-        <Text style={styles.date}>Start: {item.startDate || "N/A"}</Text>
-        <Text style={styles.date}>End: {item.endDate || "N/A"}</Text>
-      </View>
-
-      <View style={styles.metaContainer}>
-        <View
-          style={[
-            styles.priorityBadge,
-            { backgroundColor: getPriorityColor(item.priority) + "20" },
+            { backgroundColor: getStatusColor(item.Status) + "20" },
           ]}
         >
           <Text
             style={[
-              styles.priorityText,
-              { color: getPriorityColor(item.priority) },
+              styles.statusText,
+              { color: getStatusColor(item.Status) },
             ]}
           >
-            {item.priority ? item.priority.toUpperCase() : "MEDIUM"}
+            {item.Status}
           </Text>
         </View>
+      </View>
 
-        <Text style={styles.budget}>💰 ${item.budget || "0"}</Text>
-        <Text style={styles.progress}>📊 {item.progress || 0}%</Text>
+      <Text style={styles.client}>Client: {item.Client || "N/A"}</Text>
+
+      <Text style={styles.description} numberOfLines={2}>
+        {item.Description}
+      </Text>
+
+      <View style={styles.dates}>
+        <Text style={styles.date}>Start: {item.StartDate}</Text>
+        <Text style={styles.date}>End: {item.EndDate}</Text>
+      </View>
+
+      <View style={styles.metaContainer}>
+        <Text style={styles.budget}>💰 ${item.Budget || 0}</Text>
       </View>
 
       <View style={styles.actions}>
@@ -198,7 +153,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
 
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDelete(item.id, item.name)}
+          onPress={() => handleDelete(item.ProjectId, item.Name)}
         >
           <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
@@ -206,13 +161,21 @@ export default function ProjectManagementScreen({ navigation, route }) {
     </View>
   );
 
+  /* ===============================
+     SCREEN
+  =============================== */
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Projects ({projects.length})</Text>
+
+        <Text style={styles.headerTitle}>
+          Projects ({projects.length})
+        </Text>
+
         <TouchableOpacity
           onPress={() => navigation.navigate("CreateProject", { user })}
         >
@@ -223,7 +186,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
       <FlatList
         data={projects}
         renderItem={renderProject}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.ProjectId}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -242,11 +205,16 @@ export default function ProjectManagementScreen({ navigation, route }) {
   );
 }
 
+/* ===============================
+   STYLES
+=============================== */
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -254,107 +222,99 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: "#4CAF50",
   },
+
   backText: {
     color: "#fff",
     fontSize: 16,
   },
+
   headerTitle: {
     fontSize: 20,
     fontWeight: "bold",
     color: "#fff",
   },
+
   addText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
   },
+
   list: {
     padding: 16,
   },
+
   projectCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
     borderWidth: 1,
     borderColor: "#f0f0f0",
   },
+
   projectHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: 8,
   },
+
   projectName: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
-    flex: 1,
   },
+
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
+
   statusText: {
     fontSize: 10,
     fontWeight: "600",
   },
+
   client: {
     fontSize: 14,
     color: "#666",
     marginBottom: 6,
   },
+
   description: {
     fontSize: 13,
     color: "#666",
     marginBottom: 8,
-    lineHeight: 18,
   },
+
   dates: {
     flexDirection: "row",
     marginBottom: 8,
   },
+
   date: {
     fontSize: 12,
     color: "#999",
     marginRight: 16,
   },
+
   metaContainer: {
-    flexDirection: "row",
-    alignItems: "center",
     marginBottom: 12,
   },
-  priorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  priorityText: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
+
   budget: {
     fontSize: 12,
     color: "#666",
-    marginRight: 12,
   },
-  progress: {
-    fontSize: 12,
-    color: "#666",
-  },
+
   actions: {
     flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
     paddingTop: 12,
   },
+
   editButton: {
     flex: 1,
     padding: 8,
@@ -363,40 +323,45 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginRight: 8,
   },
+
   editButtonText: {
     color: "#666",
     fontWeight: "600",
   },
+
   deleteButton: {
     flex: 1,
     padding: 8,
     alignItems: "center",
     backgroundColor: "#ffebee",
     borderRadius: 6,
-    marginLeft: 8,
   },
+
   deleteButtonText: {
     color: "#f44336",
     fontWeight: "600",
   },
+
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
     padding: 40,
   },
+
   emptyIcon: {
     fontSize: 50,
     marginBottom: 12,
   },
+
   emptyTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
-    marginBottom: 8,
   },
+
   emptyText: {
     fontSize: 14,
     color: "#999",
     textAlign: "center",
   },
-});
+});       

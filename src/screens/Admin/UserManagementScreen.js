@@ -17,10 +17,10 @@ import {
 } from "react-native";
 // import { getTeams } from "../../api/teamApi";
 import {
-  createUser,
-  deleteUser,
-  getUsers,
-  updateUser,
+  deleteRequest,
+  getRequest,
+  postRequest,
+  putRequest,
 } from "../../services/apiService";
 
 export default function UserManagementScreen({ navigation }) {
@@ -49,7 +49,7 @@ export default function UserManagementScreen({ navigation }) {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const response = await getUsers();
+      const response = await getRequest("/user/getusers");
 
       // Handle different response structures
       const usersData = response.users || response || [];
@@ -94,7 +94,7 @@ export default function UserManagementScreen({ navigation }) {
 
   // const loadProjects = async () => {
   //   try {
-  //     const fetchedProjects = await getProjects();
+  //     const fetchedProjects = await getRequest("/projects");
   //     setProjects(fetchedProjects);
   //   } catch (error) {
   //     console.error("Error loading projects:", error);
@@ -103,7 +103,7 @@ export default function UserManagementScreen({ navigation }) {
 
   // const loadTeams = async () => {
   //   try {
-  //     const fetchedTeams = await getTeams();
+  //     const fetchedTeams = await getRequest("/teams");
   //     setTeams(fetchedTeams);
   //   } catch (error) {
   //     console.error("Error loading teams:", error);
@@ -237,7 +237,7 @@ export default function UserManagementScreen({ navigation }) {
 
       console.log("Creating user with data:", userData);
 
-      const response = await createUser(userData);
+      const response = await postRequest("/user/create-user", userData);
       console.log("Create user response:", response);
 
       await loadUsers();
@@ -284,7 +284,10 @@ export default function UserManagementScreen({ navigation }) {
         // Add other fields as needed by your backend
       };
 
-      const response = await updateUser(editingUser.id, userData);
+      const response = await putRequest(
+        `/user/update-user/${editingUser.id}`,
+        userData,
+      );
       console.log("Update response:", response);
 
       // Refresh users list
@@ -315,7 +318,9 @@ export default function UserManagementScreen({ navigation }) {
           onPress: async () => {
             try {
               // Call API to update status
-              await updateUser(user.id, { IsActive: newStatus === "Active" });
+              await putRequest(`/user/update-user/${user.id}`, {
+                IsActive: newStatus === "Active",
+              });
 
               // Update local state
               setUsers(
@@ -361,7 +366,9 @@ export default function UserManagementScreen({ navigation }) {
           text: "Yes",
           onPress: async () => {
             try {
-              await updateUser(selectedUser.id, { Password: newPassword });
+              await putRequest(`/user/update-user/${selectedUser.id}`, {
+                Password: newPassword,
+              });
               setResetPasswordModal(false);
               setNewPassword("");
               Alert.alert("Success", "Password reset successfully");
@@ -379,34 +386,36 @@ export default function UserManagementScreen({ navigation }) {
   };
 
   // Delete user
-  const handleDeleteUser = (userId) => {
-    Alert.alert(
-      "Delete User",
-      "Are you sure you want to delete this user? This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteUser(userId);
-              setUsers(users.filter((user) => user.id !== userId));
-              setSelectedUser(null);
-              Alert.alert("Success", "User deleted successfully");
-            } catch (error) {
-              console.error("Error deleting user:", error);
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to delete user",
-              );
-            }
-          },
+const handleDeleteUser = (userId) => {
+  Alert.alert(
+    "Delete User",
+    "Are you sure you want to delete this user? This action cannot be undone.",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteRequest(`/user/delete-user/${userId}`);
+            
+            await loadUsers(); // Reload all users from the server
+            
+            setSelectedUser(null);
+            
+            Alert.alert("Success", "User deleted successfully");
+          } catch (error) {
+            console.error("Error deleting user:", error);
+            Alert.alert(
+              "Error",
+              error.response?.data?.message || "Failed to delete user"
+            );
+          }
         },
-      ],
-    );
-  };
-
+      },
+    ]
+  );
+};
   // Assign role to user
   const handleAssignRole = async (user, newRole) => {
     Alert.alert(
@@ -427,7 +436,9 @@ export default function UserManagementScreen({ navigation }) {
                 Viewer: 4,
               };
 
-              await updateUser(user.id, { RoleId: roleMapping[newRole] || 3 });
+              await putRequest(`/user/update-user/${user.id}`, {
+                RoleId: roleMapping[newRole] || 3,
+              });
 
               // Update local state
               setUsers(
@@ -455,13 +466,13 @@ export default function UserManagementScreen({ navigation }) {
   const handleAddToTeam = async (user, teamId) => {
     try {
       // Uncomment when API is implemented
-      // await addUserToTeam(user.id, teamId);
+      // await postRequest(`/user/${user.id}/teams`, { teamId });
       const team = teams.find((t) => t.id === teamId);
       const updatedUser = {
         ...user,
         teams: [...(user.teams || []), { id: teamId, name: team?.name }],
       };
-      // await updateUser(updatedUser); // Uncomment if needed
+      // await putRequest(`/user/update-user/${user.id}`, updatedUser); // Uncomment if needed
       setUsers(users.map((u) => (u.id === user.id ? updatedUser : u)));
       setSelectedUser(updatedUser);
       // loadTeams(); // Uncomment if needed
@@ -478,13 +489,13 @@ export default function UserManagementScreen({ navigation }) {
   const handleRemoveFromTeam = async (user, teamId) => {
     try {
       // Uncomment when API is implemented
-      // await removeUserFromTeam(user.id, teamId);
+      // await deleteRequest(`/user/${user.id}/teams/${teamId}`);
       const team = teams.find((t) => t.id === teamId);
       const updatedUser = {
         ...user,
         teams: (user.teams || []).filter((t) => t.id !== teamId),
       };
-      // await updateUser(updatedUser); // Uncomment if needed
+      // await putRequest(`/user/update-user/${user.id}`, updatedUser); // Uncomment if needed
       setUsers(users.map((u) => (u.id === user.id ? updatedUser : u)));
       setSelectedUser(updatedUser);
       // loadTeams(); // Uncomment if needed
@@ -502,7 +513,7 @@ export default function UserManagementScreen({ navigation }) {
   const handleAssignToProject = async (user, projectId) => {
     try {
       // Uncomment when API is implemented
-      // await assignUserToProject(user.id, projectId);
+      // await postRequest(`/user/${user.id}/projects`, { projectId });
       const project = projects.find((p) => p.id === projectId);
       const updatedUser = {
         ...user,
@@ -511,7 +522,7 @@ export default function UserManagementScreen({ navigation }) {
           { id: projectId, name: project?.name },
         ],
       };
-      // await updateUser(updatedUser); // Uncomment if needed
+      // await putRequest(`/user/update-user/${user.id}`, updatedUser); // Uncomment if needed
       setUsers(users.map((u) => (u.id === user.id ? updatedUser : u)));
       setSelectedUser(updatedUser);
       Alert.alert("Success", `User assigned to project ${project?.name}`);
@@ -527,13 +538,13 @@ export default function UserManagementScreen({ navigation }) {
   const handleRemoveFromProject = async (user, projectId) => {
     try {
       // Uncomment when API is implemented
-      // await removeUserFromProject(user.id, projectId);
+      // await deleteRequest(`/user/${user.id}/projects/${projectId}`);
       const project = projects.find((p) => p.id === projectId);
       const updatedUser = {
         ...user,
         projects: (user.projects || []).filter((p) => p.id !== projectId),
       };
-      // await updateUser(updatedUser); // Uncomment if needed
+      // await putRequest(`/user/update-user/${user.id}`, updatedUser); // Uncomment if needed
       setUsers(users.map((u) => (u.id === user.id ? updatedUser : u)));
       setSelectedUser(updatedUser);
       Alert.alert("Success", `User removed from project ${project?.name}`);
@@ -1083,12 +1094,12 @@ export default function UserManagementScreen({ navigation }) {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.actionItem, styles.deleteAction]}
-                    onPress={() => handleDeleteUser(selectedUser.id)}
-                  >
-                    <Text style={styles.actionIcon}>🗑️</Text>
-                    <Text style={styles.actionText}>Delete</Text>
-                  </TouchableOpacity>
+  style={[styles.actionItem, styles.deleteAction]}
+  onPress={() => handleDeleteUser(selectedUser.UserID)}  // ✅ Correct
+>
+  <Text style={styles.actionIcon}>🗑️</Text>
+  <Text style={styles.actionText}>Delete</Text>
+</TouchableOpacity>
                 </View>
 
                 {/* User Details */}
