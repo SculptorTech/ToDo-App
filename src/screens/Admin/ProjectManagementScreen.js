@@ -10,12 +10,15 @@ import {
   View,
 } from "react-native";
 
-import { getRequest, deleteRequest } from "../../services/apiService";
+import {
+  getRequest
+} from "../../services/apiService";
 
 export default function ProjectManagementScreen({ navigation, route }) {
   const { user } = route.params || {};
   const [projects, setProjects] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [updatingProjectId, setUpdatingProjectId] = useState(null);
 
   /* ===============================
      LOAD PROJECTS
@@ -24,7 +27,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       loadProjects();
-    }, [])
+    }, []),
   );
 
   const loadProjects = async () => {
@@ -33,9 +36,14 @@ export default function ProjectManagementScreen({ navigation, route }) {
 
       const response = await getRequest("/project/get-projects");
 
-      console.log("API Response:", response);
+      const projectsData = response.projects || [];
 
-      setProjects(response.projects || []);
+      const normalizedProjects = projectsData.map((p) => ({
+        ...p,
+        id: p.id || p.ProjectID || p.ProjectId,
+      }));
+
+      setProjects(normalizedProjects);
     } catch (error) {
       console.error("❌ Error loading projects:", error);
       Alert.alert("Error", "Failed to load projects");
@@ -52,37 +60,34 @@ export default function ProjectManagementScreen({ navigation, route }) {
      DELETE PROJECT
   =============================== */
 
-  const handleDelete = (projectId, projectName) => {
-    Alert.alert(
-      "Delete Project",
-      `Are you sure you want to delete "${projectName}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
+  const handleDelete = async (id) => {
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/project/delete-project/${id}`,
+        { method: "DELETE" },
+      );
 
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteRequest(`/project/delete-project/${projectId}`);
+      const data = await res.json();
+      console.log(data);
 
-              setProjects(projects.filter((p) => p.ProjectId !== projectId));
-
-              Alert.alert("Success", "Project deleted successfully");
-            } catch (error) {
-              console.error("❌ Delete error:", error);
-
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to delete project"
-              );
-            }
-          },
-        },
-      ]
-    );
+      getProjects(); // reload list
+    } catch (err) {
+      console.error(err);
+    }
   };
+  /* ===============================
+     UPDATE PROJECT
+  =============================== */
 
+  const handleUpdate = async (id, updatedData) => {
+    await fetch(`http://localhost:5000/api/project/update-project/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedData),
+    });
+
+    getProjects();
+  };
   /* ===============================
      UI HELPERS
   =============================== */
@@ -111,21 +116,28 @@ export default function ProjectManagementScreen({ navigation, route }) {
       <View style={styles.projectHeader}>
         <Text style={styles.projectName}>{item.Name}</Text>
 
-        <View
-          style={[
-            styles.statusBadge,
-            { backgroundColor: getStatusColor(item.Status) + "20" },
-          ]}
+        <TouchableOpacity
+          onPress={() => handleDelete(item._id, item.Name)}
+          disabled={updatingProjectId === item.ProjectId}
         >
-          <Text
+          <View
             style={[
-              styles.statusText,
-              { color: getStatusColor(item.Status) },
+              styles.statusBadge,
+              { backgroundColor: getStatusColor(item.Status) + "20" },
             ]}
           >
-            {item.Status}
-          </Text>
-        </View>
+            <Text
+              style={[
+                styles.statusText,
+                { color: getStatusColor(item.Status) },
+              ]}
+            >
+              {updatingProjectId === item.ProjectId
+                ? "Updating..."
+                : item.Status}
+            </Text>
+          </View>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.client}>Client: {item.Client || "N/A"}</Text>
@@ -146,14 +158,14 @@ export default function ProjectManagementScreen({ navigation, route }) {
       <View style={styles.actions}>
         <TouchableOpacity
           style={styles.editButton}
-          onPress={() => Alert.alert("Info", "Edit feature coming soon")}
+          onPress={() => showUpdateOptions(item)}
         >
-          <Text style={styles.editButtonText}>Edit</Text>
+          <Text style={styles.editButtonText}>Update</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDelete(item.ProjectId, item.Name)}
+          onPress={() => handleDelete(item.id, item.Name)}
         >
           <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
@@ -172,12 +184,15 @@ export default function ProjectManagementScreen({ navigation, route }) {
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>
-          Projects ({projects.length})
-        </Text>
+        <Text style={styles.headerTitle}>Projects ({projects.length})</Text>
 
         <TouchableOpacity
-          onPress={() => navigation.navigate("CreateProject", { user })}
+          onPress={() =>
+            navigation.navigate("CreateProject", {
+              user,
+              mode: "create",
+            })
+          }
         >
           <Text style={styles.addText}>+ New</Text>
         </TouchableOpacity>
@@ -186,7 +201,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
       <FlatList
         data={projects}
         renderItem={renderProject}
-        keyExtractor={(item) => item.ProjectId}
+        keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -263,12 +278,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
+    flex: 1,
   },
 
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    minWidth: 70,
+    alignItems: "center",
   },
 
   statusText: {
@@ -364,4 +382,4 @@ const styles = StyleSheet.create({
     color: "#999",
     textAlign: "center",
   },
-});       
+});

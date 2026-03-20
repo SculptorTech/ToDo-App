@@ -2,10 +2,12 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   RefreshControl,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,17 +15,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  getTasksByUser,
-  updateTask
-} from "../../utils/storage";
+import { getRequest, putRequest } from "../../services/apiService";
 
 export default function TaskListScreen({ navigation, route }) {
-  const { user: routeUser } = route.params || {};
+  const { user } = route.params || {};
 
-  // Use route user if available, otherwise use context user
-  const user = routeUser;
-
+  // All state declarations
   const [tasks, setTasks] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -34,63 +31,179 @@ export default function TaskListScreen({ navigation, route }) {
   const [expandedTask, setExpandedTask] = useState(null);
   const [progressModal, setProgressModal] = useState(false);
   const [progressValue, setProgressValue] = useState("0");
-  const [sortBy, setSortBy] = useState("dueDate"); // dueDate, priority, status
+  const [sortBy, setSortBy] = useState("dueDate");
   const [sortOrder, setSortOrder] = useState("asc");
   const [showFilters, setShowFilters] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  console.log("🔍 TaskListScreen - user:", user); // Debug log
+  // ==================== HELPER FUNCTIONS ====================
 
-  useFocusEffect(
-    useCallback(() => {
-      if (user?.UserID || user?.id) {
-        loadTasks();
-      }
-    }, [user]),
-  );
+  const getPriorityColor = (priority) => {
+    switch (priority?.toLowerCase()) {
+      case "high":
+        return "#f44336";
+      case "medium":
+      case "normal":
+        return "#ff9800";
+      case "low":
+        return "#4CAF50";
+      default:
+        return "#999";
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status?.toLowerCase()) {
+      case "pending":
+        return "#ff9800";
+      case "in_progress":
+        return "#2196f3";
+      case "completed":
+        return "#4CAF50";
+      case "blocked":
+      case "onhold":
+        return "#f44336";
+      default:
+        return "#999";
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status?.toLowerCase()) {
+      case "pending":
+        return "⏳";
+      case "in_progress":
+        return "🔄";
+      case "completed":
+        return "✅";
+      case "blocked":
+      case "onhold":
+        return "🚫";
+      default:
+        return "📋";
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status?.toLowerCase()) {
+      case "pending":
+        return "Pending";
+      case "in_progress":
+        return "In Progress";
+      case "completed":
+        return "Completed";
+      case "blocked":
+        return "Blocked";
+      case "onhold":
+        return "On Hold";
+      default:
+        return status;
+    }
+  };
+
+  const getDaysRemaining = (dueDate) => {
+    if (!dueDate) return null;
+    try {
+      const today = new Date();
+      const due = new Date(dueDate);
+      const diffTime = due - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) return `Overdue by ${Math.abs(diffDays)} days`;
+      if (diffDays === 0) return "Due today";
+      return `${diffDays} days remaining`;
+    } catch (e) {
+      return "Invalid date";
+    }
+  };
+
+  const getDueDateColor = (dueDate) => {
+    if (!dueDate) return "#666";
+    const days = getDaysRemaining(dueDate);
+    if (days?.includes("Overdue")) return "#f44336";
+    if (days?.includes("today")) return "#ff9800";
+    return "#4CAF50";
+  };
+
+  // ==================== API FUNCTIONS ====================
 
   const loadTasks = async () => {
     const userId = user?.UserID || user?.id;
     if (!userId) {
-      console.log("No user ID found");
+      setError("No user ID found");
+      setLoading(false);
       return;
     }
-    console.log("Loading tasks for user:", userId);
-    const userTasks = await getTasksByUser(userId);
-    setTasks(userTasks);
 
-    // Extract unique projects for filter
-    const uniqueProjects = [
-      ...new Set(userTasks.map((t) => t.projectName).filter(Boolean)),
-    ];
-    setProjects(uniqueProjects);
-  };
+    try {
+      setLoading(true);
+      setError(null);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadTasks();
-    setRefreshing(false);
+      const response = await getRequest("/task/get-tasks", {
+        assignedTo: userId,
+      });
+
+      let userTasks = [];
+      if (response.tasks) {
+        userTasks = response.tasks;
+      } else if (Array.isArray(response)) {
+        userTasks = response;
+      }
+
+      // Transform tasks
+      const transformedTasks = userTasks.map((task) => ({
+        id: task._id || task.TaskId || task.id,
+        title: task.Title || task.title || "Untitled Task",
+        description: task.Description || task.description || "",
+        priority: task.Priority || task.priority || "Normal",
+        status: task.Status || task.status || "pending",
+        dueDate: task.DueDate || task.dueDate,
+        projectName: task.ProjectName || task.projectName || "No Project",
+        assignedBy: task.CreatedByName || task.createdByName || "Manager",
+        progress: task.Progress || 0,
+        comments: task.Comments || [],
+      }));
+
+      setTasks(transformedTasks);
+
+      // Update projects list
+      const uniqueProjects = [
+        ...new Set(transformedTasks.map((t) => t.projectName).filter(Boolean)),
+      ];
+      setProjects(uniqueProjects);
+    } catch (err) {
+      setError(err.message || "Failed to load tasks");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateTaskStatus = async (id, newStatus) => {
     Alert.alert(
       "Update Task Status",
-      `Are you sure you want to mark this task as ${newStatus.replace("_", " ")}?`,
+      `Mark task as ${getStatusText(newStatus)}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Confirm",
           onPress: async () => {
-            const updated = await updateTask(id, {
-              status: newStatus,
-              ...(newStatus === "completed"
-                ? { completedAt: new Date().toISOString() }
-                : {}),
-            });
-            if (updated) {
+            try {
+              await putRequest(`/task/update-task/${id}`, {
+                Status: newStatus,
+                ...(newStatus === "completed"
+                  ? {
+                      CompletedAt: new Date().toISOString(),
+                      Progress: 100,
+                    }
+                  : {}),
+              });
               await loadTasks();
+            } catch (error) {
+              Alert.alert("Error", "Failed to update task status");
             }
           },
         },
@@ -107,15 +220,15 @@ export default function TaskListScreen({ navigation, route }) {
       return;
     }
 
-    const updated = await updateTask(selectedTask.id, {
-      progress: progress,
-      ...(progress === 100 ? { status: "completed" } : {}),
-    });
-
-    if (updated) {
+    try {
+      await putRequest(`/task/update-progress/${selectedTask.id}`, {
+        progress: progress,
+      });
       setProgressModal(false);
       setProgressValue("0");
       await loadTasks();
+    } catch (error) {
+      Alert.alert("Error", "Failed to update progress");
     }
   };
 
@@ -124,103 +237,29 @@ export default function TaskListScreen({ navigation, route }) {
 
     const task = selectedTask;
     const comments = task.comments || [];
-    const updated = await updateTask(task.id, {
-      comments: [
-        ...comments,
-        {
-          id: Date.now().toString(),
-          text: newComment,
-          userId: user?.UserID || user?.id,
-          userName: user?.FullName || user?.name || "User",
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    });
+    const updatedComments = [
+      ...comments,
+      {
+        id: Date.now().toString(),
+        text: newComment,
+        userName: user?.FullName || user?.name || "Developer",
+        timestamp: new Date().toISOString(),
+      },
+    ];
 
-    if (updated) {
+    try {
+      await putRequest(`/task/update-task/${task.id}`, {
+        Comments: updatedComments,
+      });
       setNewComment("");
       setCommentModal(false);
       await loadTasks();
+    } catch (error) {
+      Alert.alert("Error", "Failed to add comment");
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority?.toLowerCase()) {
-      case "high":
-        return "#f44336";
-      case "medium":
-        return "#ff9800";
-      case "low":
-        return "#4CAF50";
-      default:
-        return "#999";
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "pending":
-        return "#ff9800";
-      case "in_progress":
-        return "#2196f3";
-      case "completed":
-        return "#4CAF50";
-      case "blocked":
-        return "#f44336";
-      default:
-        return "#999";
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "pending":
-        return "⏳";
-      case "in_progress":
-        return "🔄";
-      case "completed":
-        return "✅";
-      case "blocked":
-        return "🚫";
-      default:
-        return "📋";
-    }
-  };
-
-  const getStatusText = (status) => {
-    switch (status) {
-      case "pending":
-        return "Pending";
-      case "in_progress":
-        return "In Progress";
-      case "completed":
-        return "Completed";
-      case "blocked":
-        return "Blocked";
-      default:
-        return status;
-    }
-  };
-
-  const getDaysRemaining = (dueDate) => {
-    if (!dueDate) return null;
-    const today = new Date();
-    const due = new Date(dueDate);
-    const diffTime = due - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) return `Overdue by ${Math.abs(diffDays)} days`;
-    if (diffDays === 0) return "Due today";
-    return `${diffDays} days remaining`;
-  };
-
-  const getDueDateColor = (dueDate) => {
-    if (!dueDate) return "#666";
-    const days = getDaysRemaining(dueDate);
-    if (days?.includes("Overdue")) return "#f44336";
-    if (days?.includes("today")) return "#ff9800";
-    return "#4CAF50";
-  };
+  // ==================== FILTER AND SORT FUNCTIONS ====================
 
   const sortTasks = (tasksToSort) => {
     return [...tasksToSort].sort((a, b) => {
@@ -231,22 +270,25 @@ export default function TaskListScreen({ navigation, route }) {
           comparison = new Date(a.dueDate || 0) - new Date(b.dueDate || 0);
           break;
         case "priority":
-          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          const priorityOrder = { high: 3, medium: 2, normal: 2, low: 1 };
           comparison =
-            (priorityOrder[b.priority] || 0) - (priorityOrder[a.priority] || 0);
+            (priorityOrder[b.priority?.toLowerCase()] || 0) -
+            (priorityOrder[a.priority?.toLowerCase()] || 0);
           break;
         case "status":
           const statusOrder = {
             pending: 1,
             in_progress: 2,
             blocked: 3,
+            onhold: 3,
             completed: 4,
           };
           comparison =
-            (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
+            (statusOrder[a.status?.toLowerCase()] || 0) -
+            (statusOrder[b.status?.toLowerCase()] || 0);
           break;
         case "title":
-          comparison = a.title.localeCompare(b.title);
+          comparison = (a.title || "").localeCompare(b.title || "");
           break;
       }
 
@@ -259,37 +301,258 @@ export default function TaskListScreen({ navigation, route }) {
       if (filter === "pending") return t.status !== "completed";
       if (filter === "in_progress") return t.status === "in_progress";
       if (filter === "completed") return t.status === "completed";
-      if (filter === "blocked") return t.status === "blocked";
+      if (filter === "blocked")
+        return t.status === "blocked" || t.status === "onhold";
       return true;
     })
-    .filter((t) => priorityFilter === "all" || t.priority === priorityFilter)
+    .filter(
+      (t) =>
+        priorityFilter === "all" ||
+        t.priority?.toLowerCase() === priorityFilter,
+    )
     .filter((t) => projectFilter === "all" || t.projectName === projectFilter)
     .filter(
       (t) =>
-        t.title.toLowerCase().includes(search.toLowerCase()) ||
-        t.description?.toLowerCase().includes(search.toLowerCase()) ||
-        t.projectName?.toLowerCase().includes(search.toLowerCase()),
+        (t.title || "").toLowerCase().includes(search.toLowerCase()) ||
+        (t.description || "").toLowerCase().includes(search.toLowerCase()) ||
+        (t.projectName || "").toLowerCase().includes(search.toLowerCase()),
     );
 
   const sortedAndFilteredTasks = sortTasks(filteredTasks);
 
-  // If no user is available, show login prompt
-  if (!user) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.greeting}>Please log in again</Text>
-          <TouchableOpacity onPress={() => navigation.replace("Login")}>
-            <Text style={styles.logout}>Go to Login</Text>
-          </TouchableOpacity>
+  // ==================== LOAD DATA ON FOCUS ====================
+
+  useFocusEffect(
+    useCallback(() => {
+      loadTasks();
+    }, [user]),
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTasks();
+    setRefreshing(false);
+  };
+
+  // ==================== RENDER FUNCTIONS ====================
+
+  const renderTaskCard = ({ item }) => (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={() => setExpandedTask(expandedTask === item.id ? null : item.id)}
+    >
+      <View style={styles.taskCard}>
+        {/* Status Bar */}
+        <View
+          style={[
+            styles.statusBar,
+            { backgroundColor: getStatusColor(item.status) },
+          ]}
+        />
+
+        <View style={styles.taskContent}>
+          {/* Header */}
+          <View style={styles.taskHeader}>
+            <View style={styles.titleContainer}>
+              <Text style={styles.statusIcon}>
+                {getStatusIcon(item.status)}
+              </Text>
+              <Text style={styles.taskTitle}>{item.title}</Text>
+            </View>
+            {item.priority && (
+              <View
+                style={[
+                  styles.priorityBadge,
+                  { backgroundColor: getPriorityColor(item.priority) },
+                ]}
+              >
+                <Text style={styles.priorityText}>{item.priority}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Project Name */}
+          <Text style={styles.projectName}>📁 {item.projectName}</Text>
+
+          {/* Description (expanded) */}
+          {expandedTask === item.id && item.description && (
+            <Text style={styles.description}>{item.description}</Text>
+          )}
+
+          {/* Progress Bar */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBarBg}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${item.progress || 0}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressText}>{item.progress || 0}%</Text>
+          </View>
+
+          {/* Meta Info */}
+          <View style={styles.metaContainer}>
+            {item.dueDate && (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaIcon}>📅</Text>
+                <Text
+                  style={[
+                    styles.dueDate,
+                    { color: getDueDateColor(item.dueDate) },
+                  ]}
+                >
+                  {getDaysRemaining(item.dueDate)}
+                </Text>
+              </View>
+            )}
+            <View style={styles.metaItem}>
+              <Text style={styles.metaIcon}>👤</Text>
+              <Text style={styles.assignedBy}>By: {item.assignedBy}</Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.actionButtons}>
+            {item.status !== "completed" && (
+              <>
+                {item.status === "pending" && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.startButton]}
+                    onPress={() => updateTaskStatus(item.id, "in_progress")}
+                  >
+                    <Text style={styles.actionButtonIcon}>▶️</Text>
+                    <Text style={styles.actionButtonText}>Start</Text>
+                  </TouchableOpacity>
+                )}
+
+                {item.status === "in_progress" && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.completeButton]}
+                      onPress={() => updateTaskStatus(item.id, "completed")}
+                    >
+                      <Text style={styles.actionButtonIcon}>✅</Text>
+                      <Text style={styles.actionButtonText}>Complete</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.blockButton]}
+                      onPress={() => updateTaskStatus(item.id, "blocked")}
+                    >
+                      <Text style={styles.actionButtonIcon}>🚫</Text>
+                      <Text style={styles.actionButtonText}>Block</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {item.status === "blocked" && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.resumeButton]}
+                    onPress={() => updateTaskStatus(item.id, "in_progress")}
+                  >
+                    <Text style={styles.actionButtonIcon}>🔄</Text>
+                    <Text style={styles.actionButtonText}>Resume</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.progressButton]}
+                  onPress={() => {
+                    setSelectedTask(item);
+                    setProgressValue(item.progress?.toString() || "0");
+                    setProgressModal(true);
+                  }}
+                >
+                  <Text style={styles.actionButtonIcon}>📊</Text>
+                  <Text style={styles.actionButtonText}>Progress</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.commentButton]}
+              onPress={() => {
+                setSelectedTask(item);
+                setCommentModal(true);
+              }}
+            >
+              <Text style={styles.actionButtonIcon}>💬</Text>
+              <Text style={styles.actionButtonText}>
+                Comments{" "}
+                {item.comments?.length ? `(${item.comments.length})` : ""}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Comments Preview */}
+          {item.comments && item.comments.length > 0 && (
+            <View style={styles.commentsPreview}>
+              <Text style={styles.commentsIcon}>💬</Text>
+              <Text style={styles.commentsPreviewText}>
+                {item.comments[item.comments.length - 1].text.substring(0, 40)}
+                {item.comments[item.comments.length - 1].text.length > 40
+                  ? "..."
+                  : ""}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
+    </TouchableOpacity>
+  );
+
+  // ==================== LOADING/ERROR STATES ====================
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorIcon}>❌</Text>
+          <Text style={styles.errorTitle}>No User Data</Text>
+          <Text style={styles.errorText}>Please log in again</Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => navigation.replace("Login")}
+          >
+            <Text style={styles.buttonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+          <Text style={styles.loadingText}>Loading your tasks...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorIcon}>❌</Text>
+          <Text style={styles.errorTitle}>Error</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.button} onPress={loadTasks}>
+            <Text style={styles.buttonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ==================== MAIN RENDER ====================
+
   return (
-    <View style={styles.container}>
-      {/* Header with User Info */}
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back,</Text>
@@ -301,17 +564,17 @@ export default function TaskListScreen({ navigation, route }) {
           style={styles.logoutButton}
           onPress={() => navigation.replace("Login")}
         >
-          <Text style={styles.logout}>Logout</Text>
+          <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search and Filter Toggle */}
+      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchWrapper}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
-            style={styles.search}
-            placeholder="Search tasks, projects..."
+            style={styles.searchInput}
+            placeholder="Search tasks..."
             value={search}
             onChangeText={setSearch}
             placeholderTextColor="#999"
@@ -328,171 +591,135 @@ export default function TaskListScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      {/* Advanced Filters */}
+      {/* Filters */}
       {showFilters && (
-        <View style={styles.advancedFilters}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.filterChips}>
-              <Text style={styles.filterLabel}>Sort by:</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtersScroll}
+        >
+          <View style={styles.filterChips}>
+            <Text style={styles.filterLabel}>Sort:</Text>
+            {["dueDate", "priority", "status", "title"].map((s) => (
               <TouchableOpacity
-                style={[styles.chip, sortBy === "dueDate" && styles.chipActive]}
-                onPress={() => setSortBy("dueDate")}
+                key={s}
+                style={[styles.chip, sortBy === s && styles.chipActive]}
+                onPress={() => setSortBy(s)}
               >
                 <Text
                   style={[
                     styles.chipText,
-                    sortBy === "dueDate" && styles.chipTextActive,
+                    sortBy === s && styles.chipTextActive,
                   ]}
                 >
-                  Due Date
+                  {s === "dueDate" ? "Date" : s}
                 </Text>
               </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.orderChip}
+              onPress={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+            >
+              <Text style={styles.orderChipText}>
+                {sortOrder === "asc" ? "↑" : "↓"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.filterChips}>
+            <Text style={styles.filterLabel}>Priority:</Text>
+            {["all", "high", "normal", "low"].map((p) => (
+              <TouchableOpacity
+                key={p}
+                style={[styles.chip, priorityFilter === p && styles.chipActive]}
+                onPress={() => setPriorityFilter(p)}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    priorityFilter === p && styles.chipTextActive,
+                  ]}
+                >
+                  {p === "all" ? "All" : p}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {projects.length > 0 && (
+            <View style={styles.filterChips}>
+              <Text style={styles.filterLabel}>Project:</Text>
               <TouchableOpacity
                 style={[
                   styles.chip,
-                  sortBy === "priority" && styles.chipActive,
+                  projectFilter === "all" && styles.chipActive,
                 ]}
-                onPress={() => setSortBy("priority")}
+                onPress={() => setProjectFilter("all")}
               >
                 <Text
                   style={[
                     styles.chipText,
-                    sortBy === "priority" && styles.chipTextActive,
+                    projectFilter === "all" && styles.chipTextActive,
                   ]}
                 >
-                  Priority
+                  All
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chip, sortBy === "status" && styles.chipActive]}
-                onPress={() => setSortBy("status")}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    sortBy === "status" && styles.chipTextActive,
-                  ]}
-                >
-                  Status
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chip, sortBy === "title" && styles.chipActive]}
-                onPress={() => setSortBy("title")}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    sortBy === "title" && styles.chipTextActive,
-                  ]}
-                >
-                  Title
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.orderChip}
-                onPress={() =>
-                  setSortOrder(sortOrder === "asc" ? "desc" : "asc")
-                }
-              >
-                <Text style={styles.orderChipText}>
-                  {sortOrder === "asc" ? "↑" : "↓"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.filterChips}>
-              <Text style={styles.filterLabel}>Priority:</Text>
-              {["all", "high", "medium", "low"].map((p) => (
+              {projects.slice(0, 5).map((project) => (
                 <TouchableOpacity
-                  key={p}
+                  key={project}
                   style={[
                     styles.chip,
-                    priorityFilter === p && styles.chipActive,
+                    projectFilter === project && styles.chipActive,
                   ]}
-                  onPress={() => setPriorityFilter(p)}
+                  onPress={() => setProjectFilter(project)}
                 >
                   <Text
                     style={[
                       styles.chipText,
-                      priorityFilter === p && styles.chipTextActive,
+                      projectFilter === project && styles.chipTextActive,
                     ]}
                   >
-                    {p === "all" ? "All" : p}
+                    {project.length > 10
+                      ? project.substring(0, 10) + "..."
+                      : project}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-
-            {projects.length > 0 && (
-              <View style={styles.filterChips}>
-                <Text style={styles.filterLabel}>Project:</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.chip,
-                    projectFilter === "all" && styles.chipActive,
-                  ]}
-                  onPress={() => setProjectFilter("all")}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      projectFilter === "all" && styles.chipTextActive,
-                    ]}
-                  >
-                    All
-                  </Text>
-                </TouchableOpacity>
-                {projects.map((project) => (
-                  <TouchableOpacity
-                    key={project}
-                    style={[
-                      styles.chip,
-                      projectFilter === project && styles.chipActive,
-                    ]}
-                    onPress={() => setProjectFilter(project)}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        projectFilter === project && styles.chipTextActive,
-                      ]}
-                    >
-                      {project}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </ScrollView>
-        </View>
+          )}
+        </ScrollView>
       )}
 
       {/* Status Filters */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={styles.filtersContainer}
+        style={styles.statusScroll}
       >
-        <View style={styles.filters}>
+        <View style={styles.statusFilters}>
           {["all", "pending", "in_progress", "blocked", "completed"].map(
             (f) => (
               <TouchableOpacity
                 key={f}
-                style={[styles.filter, filter === f && styles.filterActive]}
+                style={[
+                  styles.statusFilter,
+                  filter === f && styles.statusFilterActive,
+                ]}
                 onPress={() => setFilter(f)}
               >
                 <Text style={styles.filterIcon}>{getStatusIcon(f)}</Text>
                 <Text
                   style={[
-                    styles.filterText,
-                    filter === f && styles.filterTextActive,
+                    styles.statusFilterText,
+                    filter === f && styles.statusFilterTextActive,
                   ]}
                 >
                   {f === "in_progress"
                     ? "In Progress"
-                    : f.charAt(0).toUpperCase() + f.slice(1)}
+                    : f === "blocked"
+                      ? "Blocked"
+                      : f.charAt(0).toUpperCase() + f.slice(1)}
                 </Text>
               </TouchableOpacity>
             ),
@@ -500,34 +727,23 @@ export default function TaskListScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
+      {/* Stats */}
+      <View style={styles.statsRow}>
+        <View style={styles.statBox}>
           <Text style={styles.statNumber}>{tasks.length}</Text>
           <Text style={styles.statLabel}>Total</Text>
         </View>
-        <View style={[styles.statCard, styles.statCardPending]}>
+        <View style={[styles.statBox, styles.pendingBox]}>
           <Text style={styles.statNumber}>
             {tasks.filter((t) => t.status !== "completed").length}
           </Text>
           <Text style={styles.statLabel}>Active</Text>
         </View>
-        <View style={[styles.statCard, styles.statCardCompleted]}>
+        <View style={[styles.statBox, styles.completedBox]}>
           <Text style={styles.statNumber}>
             {tasks.filter((t) => t.status === "completed").length}
           </Text>
           <Text style={styles.statLabel}>Done</Text>
-        </View>
-        <View style={[styles.statCard, styles.statCardOverdue]}>
-          <Text style={styles.statNumber}>
-            {
-              tasks.filter((t) => {
-                if (!t.dueDate || t.status === "completed") return false;
-                return new Date(t.dueDate) < new Date();
-              }).length
-            }
-          </Text>
-          <Text style={styles.statLabel}>Overdue</Text>
         </View>
       </View>
 
@@ -535,197 +751,11 @@ export default function TaskListScreen({ navigation, route }) {
       <FlatList
         data={sortedAndFilteredTasks}
         keyExtractor={(item) => item.id}
+        renderItem={renderTaskCard}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() =>
-              setExpandedTask(expandedTask === item.id ? null : item.id)
-            }
-          >
-            <View style={styles.taskCard}>
-              {/* Status Bar */}
-              <View
-                style={[
-                  styles.statusBar,
-                  { backgroundColor: getStatusColor(item.status) },
-                ]}
-              />
-
-              <View style={styles.taskContent}>
-                {/* Header with Icons */}
-                <View style={styles.taskHeader}>
-                  <View style={styles.titleContainer}>
-                    <Text style={styles.statusIcon}>
-                      {getStatusIcon(item.status)}
-                    </Text>
-                    <Text style={styles.taskTitle}>{item.title}</Text>
-                  </View>
-                  {item.priority && (
-                    <View
-                      style={[
-                        styles.priorityBadge,
-                        { backgroundColor: getPriorityColor(item.priority) },
-                      ]}
-                    >
-                      <Text style={styles.priorityText}>{item.priority}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Project Name */}
-                {item.projectName && (
-                  <Text style={styles.projectName}>📁 {item.projectName}</Text>
-                )}
-
-                {/* Description (show in expanded mode) */}
-                {expandedTask === item.id && item.description && (
-                  <Text style={styles.description}>{item.description}</Text>
-                )}
-
-                {/* Progress Bar */}
-                {item.progress !== undefined && (
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressBarContainer}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          { width: `${item.progress}%` },
-                          item.progress === 100 && styles.progressComplete,
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.progressText}>{item.progress}%</Text>
-                  </View>
-                )}
-
-                {/* Meta Info */}
-                <View style={styles.metaContainer}>
-                  {item.dueDate && (
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaIcon}>📅</Text>
-                      <Text
-                        style={[
-                          styles.dueDate,
-                          { color: getDueDateColor(item.dueDate) },
-                        ]}
-                      >
-                        {getDaysRemaining(item.dueDate)}
-                      </Text>
-                    </View>
-                  )}
-
-                  {item.assignedBy && (
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaIcon}>👤</Text>
-                      <Text style={styles.assignedBy}>
-                        By: {item.assignedBy}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.actionButtons}>
-                  {item.status !== "completed" && (
-                    <>
-                      {item.status === "pending" && (
-                        <TouchableOpacity
-                          style={[styles.actionButton, styles.startButton]}
-                          onPress={() =>
-                            updateTaskStatus(item.id, "in_progress")
-                          }
-                        >
-                          <Text style={styles.actionButtonIcon}>▶️</Text>
-                          <Text style={styles.actionButtonText}>Start</Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {item.status === "in_progress" && (
-                        <>
-                          <TouchableOpacity
-                            style={[styles.actionButton, styles.completeButton]}
-                            onPress={() =>
-                              updateTaskStatus(item.id, "completed")
-                            }
-                          >
-                            <Text style={styles.actionButtonIcon}>✅</Text>
-                            <Text style={styles.actionButtonText}>
-                              Complete
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.actionButton, styles.blockButton]}
-                            onPress={() => updateTaskStatus(item.id, "blocked")}
-                          >
-                            <Text style={styles.actionButtonIcon}>🚫</Text>
-                            <Text style={styles.actionButtonText}>Block</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-
-                      {item.status === "blocked" && (
-                        <TouchableOpacity
-                          style={[styles.actionButton, styles.resumeButton]}
-                          onPress={() =>
-                            updateTaskStatus(item.id, "in_progress")
-                          }
-                        >
-                          <Text style={styles.actionButtonIcon}>🔄</Text>
-                          <Text style={styles.actionButtonText}>Resume</Text>
-                        </TouchableOpacity>
-                      )}
-
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.progressButton]}
-                        onPress={() => {
-                          setSelectedTask(item);
-                          setProgressValue(item.progress?.toString() || "0");
-                          setProgressModal(true);
-                        }}
-                      >
-                        <Text style={styles.actionButtonIcon}>📊</Text>
-                        <Text style={styles.actionButtonText}>Progress</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.commentButton]}
-                    onPress={() => {
-                      setSelectedTask(item);
-                      setCommentModal(true);
-                    }}
-                  >
-                    <Text style={styles.actionButtonIcon}>💬</Text>
-                    <Text style={styles.actionButtonText}>
-                      Comments{" "}
-                      {item.comments?.length ? `(${item.comments.length})` : ""}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Comments Preview */}
-                {item.comments && item.comments.length > 0 && (
-                  <View style={styles.commentsPreview}>
-                    <Text style={styles.commentsIcon}>💬</Text>
-                    <Text style={styles.commentsPreviewText}>
-                      {item.comments[item.comments.length - 1].text.substring(
-                        0,
-                        40,
-                      )}
-                      {item.comments[item.comments.length - 1].text.length > 40
-                        ? "..."
-                        : ""}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
-        )}
+        contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📋</Text>
@@ -736,7 +766,7 @@ export default function TaskListScreen({ navigation, route }) {
               priorityFilter !== "all" ||
               projectFilter !== "all"
                 ? "Try adjusting your filters"
-                : "You don't have any tasks yet. They will appear here when assigned."}
+                : "You don't have any tasks assigned yet."}
             </Text>
           </View>
         }
@@ -752,7 +782,6 @@ export default function TaskListScreen({ navigation, route }) {
             <View style={styles.progressInputContainer}>
               <TextInput
                 style={styles.progressInput}
-                placeholder="0"
                 value={progressValue}
                 onChangeText={setProgressValue}
                 keyboardType="numeric"
@@ -776,14 +805,10 @@ export default function TaskListScreen({ navigation, route }) {
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setProgressModal(false);
-                  setProgressValue("0");
-                }}
+                onPress={() => setProgressModal(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={updateTaskProgress}
@@ -802,7 +827,6 @@ export default function TaskListScreen({ navigation, route }) {
             <Text style={styles.modalTitle}>Comments</Text>
             <Text style={styles.taskTitleModal}>{selectedTask?.title}</Text>
 
-            {/* Comments List */}
             <ScrollView style={styles.commentsList}>
               {selectedTask?.comments?.length > 0 ? (
                 selectedTask.comments.map((comment) => (
@@ -821,7 +845,6 @@ export default function TaskListScreen({ navigation, route }) {
               )}
             </ScrollView>
 
-            {/* Add Comment */}
             <TextInput
               style={styles.commentInput}
               placeholder="Write a comment..."
@@ -834,14 +857,10 @@ export default function TaskListScreen({ navigation, route }) {
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setCommentModal(false);
-                  setNewComment("");
-                }}
+                onPress={() => setCommentModal(false)}
               >
                 <Text style={styles.cancelButtonText}>Close</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={addComment}
@@ -852,7 +871,7 @@ export default function TaskListScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -861,7 +880,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
-
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -870,11 +894,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
   },
   greeting: {
     fontSize: 14,
@@ -884,23 +903,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: "#4CAF50",
-    marginTop: 2,
   },
   logoutButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    padding: 10,
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
   },
-  logout: {
+  logoutText: {
     color: "#f44336",
     fontWeight: "600",
   },
-
   searchContainer: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    padding: 16,
+    paddingBottom: 8,
     gap: 8,
   },
   searchWrapper: {
@@ -910,7 +926,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 12,
   },
   searchIcon: {
@@ -918,42 +934,35 @@ const styles = StyleSheet.create({
     marginRight: 8,
     color: "#999",
   },
-  search: {
+  searchInput: {
     flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingVertical: 10,
+    fontSize: 14,
   },
   filterToggle: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 12,
+    borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
   },
   filterToggleActive: {
     backgroundColor: "#4CAF50",
-    borderColor: "#4CAF50",
   },
   filterToggleIcon: {
-    fontSize: 20,
+    fontSize: 18,
   },
-
-  advancedFilters: {
-    backgroundColor: "#fff",
-    marginTop: 8,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
+  filtersScroll: {
+    maxHeight: 50,
+    paddingHorizontal: 16,
   },
   filterChips: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingRight: 16,
   },
   filterLabel: {
     fontSize: 12,
@@ -962,17 +971,17 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     backgroundColor: "#f5f5f5",
-    borderRadius: 16,
-    marginRight: 8,
+    borderRadius: 12,
+    marginRight: 6,
   },
   chipActive: {
     backgroundColor: "#4CAF50",
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#666",
   },
   chipTextActive: {
@@ -980,98 +989,89 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   orderChip: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     backgroundColor: "#f5f5f5",
-    borderRadius: 16,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginLeft: 4,
   },
   orderChipText: {
-    fontSize: 16,
+    fontSize: 14,
     color: "#666",
   },
-
-  filtersContainer: {
-    maxHeight: 50,
-    marginTop: 8,
-  },
-  filters: {
-    flexDirection: "row",
+  statusScroll: {
+    maxHeight: 45,
     paddingHorizontal: 16,
+  },
+  statusFilters: {
+    flexDirection: "row",
     gap: 8,
   },
-  filter: {
+  statusFilter: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#ddd",
-    gap: 6,
+    gap: 4,
   },
-  filterActive: {
+  statusFilterActive: {
     backgroundColor: "#4CAF50",
     borderColor: "#4CAF50",
   },
-  filterIcon: {
-    fontSize: 14,
-  },
-  filterText: {
-    fontSize: 13,
+  statusFilterText: {
+    fontSize: 12,
     color: "#666",
-    fontWeight: "500",
   },
-  filterTextActive: {
+  statusFilterTextActive: {
     color: "#fff",
   },
-
-  statsContainer: {
+  filterIcon: {
+    fontSize: 12,
+  },
+  statsRow: {
     flexDirection: "row",
     padding: 16,
+    paddingTop: 8,
     gap: 8,
   },
-  statCard: {
+  statBox: {
     flex: 1,
     backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 12,
+    padding: 10,
+    borderRadius: 8,
     alignItems: "center",
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
   },
-  statCardPending: {
+  pendingBox: {
     backgroundColor: "#e3f2fd",
   },
-  statCardCompleted: {
+  completedBox: {
     backgroundColor: "#e8f5e9",
   },
-  statCardOverdue: {
-    backgroundColor: "#ffebee",
-  },
   statNumber: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#333",
   },
   statLabel: {
     fontSize: 11,
     color: "#666",
-    marginTop: 4,
+    marginTop: 2,
   },
-
+  listContent: {
+    padding: 16,
+    paddingTop: 0,
+  },
   taskCard: {
     flexDirection: "row",
     backgroundColor: "#fff",
-    marginHorizontal: 16,
-    marginBottom: 12,
     borderRadius: 12,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1080,130 +1080,119 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   statusBar: {
-    width: 6,
+    width: 5,
     height: "auto",
   },
-
   taskContent: {
     flex: 1,
-    padding: 16,
+    padding: 14,
   },
-
   taskHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   titleContainer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   statusIcon: {
-    fontSize: 16,
+    fontSize: 14,
   },
   taskTitle: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     color: "#333",
   },
-
   priorityBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
   priorityText: {
-    fontSize: 10,
+    fontSize: 9,
     color: "#fff",
     fontWeight: "600",
   },
-
   projectName: {
     fontSize: 12,
     color: "#666",
     marginBottom: 8,
   },
-
   description: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#666",
-    marginBottom: 12,
-    lineHeight: 18,
+    marginBottom: 8,
+    lineHeight: 16,
   },
-
   progressContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
     gap: 8,
+    marginBottom: 8,
   },
-  progressBarContainer: {
+  progressBarBg: {
     flex: 1,
-    height: 6,
+    height: 5,
     backgroundColor: "#f0f0f0",
     borderRadius: 3,
     overflow: "hidden",
   },
-  progressBar: {
+  progressBarFill: {
     height: "100%",
     backgroundColor: "#4CAF50",
   },
-  progressComplete: {
-    backgroundColor: "#4CAF50",
-  },
   progressText: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#666",
-    fontWeight: "500",
-    minWidth: 35,
+    minWidth: 30,
   },
-
   metaContainer: {
-    marginBottom: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   metaItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    gap: 4,
   },
   metaIcon: {
-    fontSize: 12,
-    marginRight: 6,
+    fontSize: 11,
     color: "#999",
   },
   dueDate: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
   },
   assignedBy: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#666",
   },
-
   actionButtons: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 10,
   },
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    gap: 3,
     backgroundColor: "#f5f5f5",
   },
   actionButtonIcon: {
-    fontSize: 12,
+    fontSize: 11,
   },
   actionButtonText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
     color: "#666",
   },
@@ -1225,26 +1214,24 @@ const styles = StyleSheet.create({
   commentButton: {
     backgroundColor: "#f5f5f5",
   },
-
   commentsPreview: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
-    gap: 6,
+    gap: 5,
   },
   commentsIcon: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#999",
   },
   commentsPreviewText: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 10,
     color: "#999",
     fontStyle: "italic",
   },
-
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -1266,7 +1253,39 @@ const styles = StyleSheet.create({
     color: "#999",
     textAlign: "center",
   },
-
+  button: {
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  errorIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 8,
+  },
+  errorText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -1284,19 +1303,18 @@ const styles = StyleSheet.create({
     width: "95%",
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#333",
     marginBottom: 4,
     textAlign: "center",
   },
   taskTitleModal: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#666",
-    marginBottom: 20,
+    marginBottom: 16,
     textAlign: "center",
   },
-
   progressInputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1304,80 +1322,77 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   progressInput: {
-    width: 80,
+    width: 70,
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    padding: 12,
-    fontSize: 18,
+    padding: 10,
+    fontSize: 16,
     textAlign: "center",
   },
   progressPercent: {
-    fontSize: 18,
-    marginLeft: 8,
+    fontSize: 16,
+    marginLeft: 6,
     color: "#666",
   },
-
   progressQuickButtons: {
     flexDirection: "row",
     justifyContent: "space-around",
     marginBottom: 20,
   },
   quickButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     backgroundColor: "#f5f5f5",
     borderRadius: 6,
   },
   quickButtonText: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#666",
   },
-
   commentsList: {
-    maxHeight: 300,
+    maxHeight: 250,
     marginBottom: 16,
   },
   commentItem: {
     backgroundColor: "#f8f9fa",
-    padding: 12,
-    borderRadius: 8,
+    padding: 10,
+    borderRadius: 6,
     marginBottom: 8,
   },
   commentHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   commentUser: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: "#4CAF50",
   },
   commentTime: {
-    fontSize: 10,
+    fontSize: 9,
     color: "#999",
   },
   commentText: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#333",
   },
   noComments: {
     textAlign: "center",
     color: "#999",
-    padding: 20,
+    padding: 16,
   },
   commentInput: {
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    minHeight: 80,
+    padding: 10,
+    fontSize: 13,
+    minHeight: 60,
     textAlignVertical: "top",
     marginBottom: 16,
   },
-
   modalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1385,7 +1400,7 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
-    padding: 14,
+    padding: 12,
     borderRadius: 8,
     alignItems: "center",
   },
@@ -1398,9 +1413,11 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: "#666",
     fontWeight: "600",
+    fontSize: 13,
   },
   saveButtonText: {
     color: "#fff",
     fontWeight: "600",
+    fontSize: 13,
   },
 });

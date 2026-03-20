@@ -12,10 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  clearCurrentUser,
-  getRequest
-} from "../../services/apiService";
+import { clearCurrentUser, getRequest } from "../../services/apiService";
 
 export default function AdminHomeScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -69,7 +66,7 @@ export default function AdminHomeScreen({ navigation, route }) {
       // Load teams (if you have teams endpoint)
       let teams = [];
       try {
-       // const teamsResponse = await getRequest("/team/get-teams");
+        // const teamsResponse = await getRequest("/team/get-teams");
         teams = teamsResponse.teams || teamsResponse || [];
       } catch (error) {
         console.warn("Teams not loaded:", error);
@@ -309,8 +306,8 @@ export default function AdminHomeScreen({ navigation, route }) {
 
               {/* Drawer Logout Button */}
               <TouchableOpacity
-                style={styles.drawerLogoutButton}
-                onPress={handleLogout}
+                style={styles.logoutButton}
+                onPress={() => navigation.replace("Login")}
               >
                 <View style={styles.drawerLogoutIcon}>
                   <Text style={styles.drawerLogoutIconText}>🚪</Text>

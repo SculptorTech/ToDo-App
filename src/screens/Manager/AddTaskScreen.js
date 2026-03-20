@@ -19,24 +19,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// import {
-//   autoPriority,
-//   createTask,
-//   enhanceTask,
-//   generateDescription,
-//   planWithSchedule,
-//   testGroqConnection,
-// } from "../../app/services/api";
-import { getTasks, saveTasks } from "../utils/storage";
-import { getEmployees } from "../utils/employeeStorage"; // Import the employee storage
+import { getRequest, postRequest } from "../../services/apiService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export default function AddTaskScreen() {
+export default function AddTaskScreen({ route }) {
   const navigation = useNavigation();
+  const { user } = route.params || {};
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [priority, setPriority] = useState("Normal");
   const [date, setDate] = useState(() => {
     const now = new Date();
@@ -49,13 +41,23 @@ export default function AddTaskScreen() {
   const [pickerMode, setPickerMode] = useState("date");
   const [showFilterOptions, setShowFilterOptions] = useState(false);
 
-  // Employee assignment states - now using real data from storage
+  // Project selection states - ADD THESE
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [filteredProjects, setFilteredProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [projectError, setProjectError] = useState(null);
+
+  // Employee assignment states
   const [assignedTo, setAssignedTo] = useState(null);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [employeeError, setEmployeeError] = useState(null);
 
   // Voice recording states
   const [recording, setRecording] = useState(null);
@@ -76,46 +78,126 @@ export default function AddTaskScreen() {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showAiOptions, setShowAiOptions] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // AI Processing states
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-
-  const recordingTimer = useRef(null);
   const recordingInterval = useRef(null);
   const isMounted = useRef(true);
-  const descriptionRef = useRef(null);
 
-  // Load employees from storage on mount and when screen focuses
-  useEffect(() => {
-    loadEmployees();
-  }, []);
+  // Load projects from API - ADD THIS FUNCTION
+  const loadProjectsFromAPI = async () => {
+    try {
+      setLoadingProjects(true);
+      setProjectError(null);
 
-  // Also reload when the screen comes into focus (in case employees were added/edited)
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
-      loadEmployees();
-    });
-    return unsubscribe;
-  }, [navigation]);
+      console.log("📡 Fetching projects from API...");
+      const response = await getRequest("/project/get-projects");
+      console.log("📡 Projects response:", response);
 
-  const loadEmployees = async () => {
+      let projectsList = [];
+      if (response.projects) {
+        projectsList = response.projects;
+      } else if (Array.isArray(response)) {
+        projectsList = response;
+      }
+
+      console.log(`📋 Loaded ${projectsList.length} projects`);
+      setProjects(projectsList);
+      setFilteredProjects(projectsList);
+    } catch (error) {
+      console.error("❌ Error loading projects:", error);
+      setProjectError(error.message || "Failed to load projects");
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
+  // Load employees from API
+  const loadEmployeesFromAPI = async () => {
     try {
       setLoadingEmployees(true);
-      const employeesData = await getEmployees();
-      // Filter only active employees
-      const activeEmployees = employeesData.filter(
-        (emp) => emp.status === "active",
+      setEmployeeError(null);
+
+      console.log("📡 Fetching employees from API...");
+      const response = await getRequest("/user/getusers");
+      console.log("📡 Employees response:", response);
+
+      // Handle different response structures
+      let usersList = [];
+      if (response.users) {
+        usersList = response.users;
+      } else if (response.data?.users) {
+        usersList = response.data.users;
+      } else if (Array.isArray(response)) {
+        usersList = response;
+      } else if (response.data && Array.isArray(response.data)) {
+        usersList = response.data;
+      }
+
+      console.log(`📋 Total users fetched: ${usersList.length}`);
+
+      // Filter out managers and keep only employees
+      const filteredUsers = usersList.filter(
+        (u) =>
+          u.UserID !== user?.UserID &&
+          (u.RoleName === "Developer" ||
+            u.roleName === "Developer" ||
+            u.Role === "Employee" ||
+            u.role === "Employee"),
       );
-      setEmployees(activeEmployees);
-      setFilteredEmployees(activeEmployees);
-      console.log("Loaded employees:", activeEmployees.length);
+
+      // Transform API data
+      const transformedEmployees = filteredUsers.map((u) => ({
+        id: u.UserID || u.id || u.userId,
+        name: u.FullName || u.fullName || u.name || "Unknown",
+        roleName: u.Role || u.role || u.roleName || "Employee",
+        email: u.Email || u.email || "",
+        department: u.Department || u.department || "General",
+        avatar: (u.FullName || u.fullName || u.name || "U")
+          .split(" ")
+          .map((n) => n[0])
+          .join("")
+          .toUpperCase()
+          .substring(0, 2),
+      }));
+
+      console.log(`📋 Transformed employees: ${transformedEmployees.length}`);
+      setEmployees(transformedEmployees);
+      setFilteredEmployees(transformedEmployees);
     } catch (error) {
-      console.error("Error loading employees:", error);
-      Alert.alert("Error", "Failed to load employees list");
+      console.error("❌ Error loading employees:", error);
+      setEmployeeError(error.message || "Failed to load employees");
     } finally {
       setLoadingEmployees(false);
     }
   };
+
+  // Load data on mount
+  useEffect(() => {
+    loadProjectsFromAPI();
+    loadEmployeesFromAPI();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadProjectsFromAPI();
+      loadEmployeesFromAPI();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // Filter projects based on search
+  useEffect(() => {
+    if (projectSearch.trim()) {
+      const filtered = projects.filter((p) =>
+        (p.Name || p.name || "")
+          .toLowerCase()
+          .includes(projectSearch.toLowerCase()),
+      );
+      setFilteredProjects(filtered);
+    } else {
+      setFilteredProjects(projects);
+    }
+  }, [projectSearch, projects]);
 
   // Filter employees based on search
   useEffect(() => {
@@ -132,223 +214,6 @@ export default function AddTaskScreen() {
       setFilteredEmployees(employees);
     }
   }, [employeeSearch, employees]);
-
-  // Helper function to clean API response
-  const cleanApiResponse = (apiText) => {
-    if (!apiText) return "";
-
-    console.log("Raw API response:", apiText);
-
-    if (apiText.includes("[object Object]")) {
-      return "AI generated description based on your task title. You can edit this description.";
-    }
-
-    let cleaned = apiText
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/\*(.*?)\*/g, "$1")
-      .replace(/#{1,6}\s?/g, "")
-      .replace(/\[object Object\]/g, "")
-      .replace(/Unfortunately,.*?generic title\./g, "")
-      .replace(/\n\s*[-•*]\s*/g, "\n• ")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/Task Title:.*?\n/g, "")
-      .replace(/Task Description:?\s*/g, "")
-      .replace(/Deliverables:.*/g, "")
-      .replace(/Deadline:.*/g, "")
-      .replace(/Priority:.*/g, "")
-      .replace(/Please provide.*tailored task description\./g, "")
-      .trim();
-
-    if (cleaned.length < 10) {
-      cleaned = `Complete "${title}" with attention to detail. Ensure all requirements are met and deliverables are completed on time.`;
-    }
-
-    console.log("Cleaned description:", cleaned);
-    return cleaned;
-  };
-
-  // Test GROQ function
-  const testGroq = async () => {
-    const result = await testGroqConnection();
-    if (result.success) {
-      Alert.alert("✅ GROQ API Working!", result.message);
-    } else {
-      Alert.alert("❌ GROQ API Failed", JSON.stringify(result.error));
-    }
-  };
-
-  // AI Action Functions
-  const handleGenerateDescription = async () => {
-    if (!title.trim()) {
-      Alert.alert("Error", "Please enter a task title first");
-      return;
-    }
-
-    setIsGeneratingAI(true);
-    setShowAiOptions(false);
-
-    try {
-      console.log("Generating description for:", title.trim());
-      const res = await generateDescription(title.trim());
-      console.log("API Response:", res.data);
-
-      if (res.data?.description) {
-        const cleanedDescription = cleanApiResponse(res.data.description);
-        setDescription(cleanedDescription);
-      } else if (res.data?.content) {
-        const cleanedDescription = cleanApiResponse(res.data.content);
-        setDescription(cleanedDescription);
-      } else {
-        setDescription(`Complete "${title.trim()}" efficiently and on time.`);
-      }
-    } catch (error) {
-      console.log("Description error:", error);
-      Alert.alert("Error", "Failed to generate description. Please try again.");
-      setDescription(`Complete "${title.trim()}" efficiently and on time.`);
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  const handleEnhanceTask = async () => {
-    if (!title.trim() && !description.trim()) {
-      Alert.alert("Error", "Please enter task title or description first");
-      return;
-    }
-
-    setIsGeneratingAI(true);
-    setShowAiOptions(false);
-
-    try {
-      const response = await enhanceTask({
-        title: title.trim(),
-        description: description.trim(),
-        priority: priority,
-      });
-
-      if (response.data?.content) {
-        const cleanedDescription = cleanApiResponse(response.data.content);
-        setDescription(cleanedDescription);
-        Alert.alert("Success", "Task enhanced successfully!");
-      } else if (response.data?.description) {
-        const cleanedDescription = cleanApiResponse(response.data.description);
-        setDescription(cleanedDescription);
-        Alert.alert("Success", "Task enhanced successfully!");
-      }
-    } catch (error) {
-      console.log("Enhance error:", error);
-      Alert.alert("Error", "Failed to enhance task");
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  const handlePlanWithSchedule = async () => {
-    if (!title.trim()) {
-      Alert.alert("Error", "Please enter a task title first");
-      return;
-    }
-
-    setIsGeneratingAI(true);
-    setShowAiOptions(false);
-
-    try {
-      const response = await planWithSchedule({
-        title: title.trim(),
-        dueDate: date.toISOString(),
-        priority: priority,
-      });
-
-      if (response.data?.content) {
-        const cleanedContent = cleanApiResponse(response.data.content);
-        const scheduledDescription = `${cleanedContent}\n\n📅 **Suggested Schedule:**\n• Start Date: ${new Date().toLocaleDateString()}\n• Timeline: 3-5 days\n• Checkpoints: Daily progress reviews`;
-        setDescription((prev) =>
-          prev ? prev + "\n\n" + scheduledDescription : scheduledDescription,
-        );
-        Alert.alert("Success", "Schedule created successfully!");
-      } else if (response.data?.description) {
-        const cleanedDescription = cleanApiResponse(response.data.description);
-        const scheduledDescription = `${cleanedDescription}\n\n📅 **Suggested Schedule:**\n• Start Date: ${new Date().toLocaleDateString()}\n• Timeline: 3-5 days\n• Checkpoints: Daily progress reviews`;
-        setDescription((prev) =>
-          prev ? prev + "\n\n" + scheduledDescription : scheduledDescription,
-        );
-        Alert.alert("Success", "Schedule created successfully!");
-      }
-    } catch (error) {
-      console.log("Plan error:", error);
-      Alert.alert("Error", "Failed to create schedule");
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  const handleAutoPriority = async () => {
-    if (!title.trim()) {
-      Alert.alert("Error", "Please enter a task title first");
-      return;
-    }
-
-    try {
-      const response = await autoPriority({ text: title });
-      if (response.data?.priority) {
-        setPriority(response.data.priority);
-        Alert.alert("Priority Set", `Priority: ${response.data.priority}`);
-      }
-    } catch (error) {
-      console.log("Priority error:", error);
-      Alert.alert("Error", "Failed to analyze priority");
-    }
-  };
-
-  const handleCreateTaskWithAI = async () => {
-    if (!title.trim()) {
-      Alert.alert("Error", "Please enter a task title first");
-      return;
-    }
-
-    setIsGeneratingAI(true);
-    setShowAiOptions(false);
-
-    try {
-      const response = await createTask(title.trim());
-      if (response.data?.content) {
-        const cleanedContent = cleanApiResponse(response.data.content);
-        setDescription(cleanedContent);
-        Alert.alert("Success", "AI-generated task created!");
-      } else if (response.data?.description) {
-        const cleanedDescription = cleanApiResponse(response.data.description);
-        setDescription(cleanedDescription);
-        Alert.alert("Success", "AI-generated task created!");
-      }
-    } catch (error) {
-      console.log("Create task error:", error);
-      Alert.alert("Error", "Failed to create task with AI");
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  // Description text actions
-  const handleCopyDescription = () => {
-    if (description.trim()) {
-      Alert.alert("Copied", "Description copied to clipboard");
-    }
-  };
-
-  const handleClearDescription = () => {
-    Alert.alert(
-      "Clear Description",
-      "Are you sure you want to clear the description?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear",
-          onPress: () => setDescription(""),
-          style: "destructive",
-        },
-      ],
-    );
-  };
 
   // Initialize audio permissions and voice recognition
   useEffect(() => {
@@ -422,33 +287,8 @@ export default function AddTaskScreen() {
       if (recordingInterval.current) {
         clearInterval(recordingInterval.current);
       }
-      if (recordingTimer.current) {
-        clearTimeout(recordingTimer.current);
-      }
     };
   }, []);
-
-  // Auto-generate priority when title changes
-  useEffect(() => {
-    const generatePriority = async () => {
-      if (title.trim() && title.length > 3 && !isGeneratingAI) {
-        try {
-          const priorityRes = await autoPriority({ text: title });
-          if (priorityRes?.data?.priority) {
-            setPriority(priorityRes.data.priority);
-          }
-        } catch (priorityError) {
-          console.log("Priority generation failed:", priorityError);
-        }
-      }
-    };
-
-    const debounceTimer = setTimeout(() => {
-      generatePriority();
-    }, 1000);
-
-    return () => clearTimeout(debounceTimer);
-  }, [title]);
 
   const startRecording = async () => {
     try {
@@ -516,11 +356,6 @@ export default function AddTaskScreen() {
     try {
       const { sound } = await Audio.Sound.createAsync({ uri });
       await sound.playAsync();
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          sound.unloadAsync();
-        }
-      });
     } catch (err) {
       console.error("Failed to play recording", err);
       Alert.alert("Error", "Failed to play recording");
@@ -578,25 +413,32 @@ export default function AddTaskScreen() {
       }
     } catch (error) {
       console.error("Voice stop error:", error);
-      setVoiceError(error.message || "Failed to stop voice recognition");
     }
   };
 
-  // Employee selection functions
-  const selectEmployee = (employee) => {
-    setAssignedTo({
-      id: employee.id,
-      name: employee.name,
-      role: employee.roleName,
-      avatar: employee.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .substring(0, 2),
-      email: employee.email,
-      department: employee.department,
+  // Project selection function - ADD THIS
+  const selectProject = (project) => {
+    console.log("Selected project:", project);
+
+    setSelectedProject({
+      id: project._id || project.ProjectId || project.id,
+      name: project.Name || project.name,
     });
+    setShowProjectModal(false);
+    setProjectSearch("");
+  };
+
+  const selectEmployee = (employee) => {
+    console.log("Selected employee:", employee);
+
+    setAssignedTo({
+      id: employee.id.toString(),
+      name: employee.name,
+      role: employee.roleName || "Employee",
+      avatar: employee.avatar,
+      department: employee.department || "",
+    });
+
     setShowEmployeeModal(false);
     setEmployeeSearch("");
   };
@@ -605,9 +447,18 @@ export default function AddTaskScreen() {
     setAssignedTo(null);
   };
 
+  const clearSelectedProject = () => {
+    setSelectedProject(null);
+  };
+
   const addTask = async () => {
     if (!title.trim()) {
       Alert.alert("Error", "Please enter a task title");
+      return;
+    }
+
+    if (!selectedProject) {
+      Alert.alert("Error", "Please select a project");
       return;
     }
 
@@ -622,7 +473,7 @@ export default function AddTaskScreen() {
         "The due date is in the past. Do you want to continue?",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Continue", onPress: actuallyAddTask },
+          { text: "Continue", onPress: () => actuallyAddTask() },
         ],
       );
     } else {
@@ -632,6 +483,8 @@ export default function AddTaskScreen() {
 
   const actuallyAddTask = async () => {
     try {
+      setIsSubmitting(true);
+
       if (isListening) {
         await stopVoiceToText();
       }
@@ -640,38 +493,54 @@ export default function AddTaskScreen() {
         await stopRecording();
       }
 
+      // Close all modals
       setShowVoiceModal(false);
       setShowRecordModal(false);
       setShowAiOptions(false);
       setShowDescriptionModal(false);
       setShowFilterOptions(false);
       setShowEmployeeModal(false);
+      setShowProjectModal(false);
 
-      const existing = await getTasks();
-
-      const newTask = {
-        id: Date.now().toString(),
+      // Prepare task data for API - matching your controller
+      const taskData = {
         title: title.trim(),
-        description: description.trim(),
-        priority,
+        description: description.trim() || "",
+        priority: priority,
         dueDate: date.toISOString(),
-        assignedTo: assignedTo,
-        assignedToId: assignedTo.id,
+        projectId: selectedProject.id.toString(),
+        projectName: selectedProject.name,
+        assignedTo: parseInt(assignedTo.id), // Send as number
         assignedToName: assignedTo.name,
-        assignedToRole: assignedTo.role,
-        assignedToEmail: assignedTo.email,
+        assignedToRole: assignedTo.role || "Employee",
+        createdBy: parseInt(user?.UserID || user?.id), // Send as number
+        createdByName: user?.FullName || user?.name || "Manager",
         voiceNote: recognizedText || null,
-        recordings: recordings.length > 0 ? recordings.map((r) => r.uri) : [],
-        completed: false,
-        createdAt: new Date().toISOString(),
+        recordings: recordings.map((r) => ({
+          uri: r.uri,
+          duration: r.duration,
+          timestamp: r.timestamp,
+        })),
+        status: "pending",
       };
 
-      await saveTasks([...existing, newTask]);
+      console.log("📤 Sending task data:", JSON.stringify(taskData, null, 2));
 
-      navigation.goBack();
+      const response = await postRequest("/task/create-task", taskData);
+      console.log("✅ Task created successfully:", response);
+
+      Alert.alert("Success", "Task created successfully!", [
+        { text: "OK", onPress: () => navigation.goBack() },
+      ]);
     } catch (error) {
-      console.error("Error adding task:", error);
-      Alert.alert("Error", "Failed to add task. Please try again.");
+      console.error("❌ Error creating task:", error);
+      Alert.alert(
+        "Error",
+        error.response?.data?.message ||
+          "Failed to create task. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -685,30 +554,9 @@ export default function AddTaskScreen() {
         await stopRecording();
       }
 
-      setShowVoiceModal(false);
-      setShowRecordModal(false);
-      setShowAiOptions(false);
-      setShowDescriptionModal(false);
-      setShowFilterOptions(false);
-      setShowEmployeeModal(false);
-
-      setTitle("");
-      setDescription("");
-      setRecognizedText("");
-      setPartialText("");
-      setRecordings([]);
-      setVoiceError("");
-      setPriority("Normal");
-      setAssignedTo(null);
-
-      const now = new Date();
-      now.setHours(now.getHours() + 1);
-      now.setMinutes(0);
-      setDate(now);
-
       navigation.goBack();
     } catch (error) {
-      console.error("Error during cancel cleanup:", error);
+      console.error("Error during cancel:", error);
       navigation.goBack();
     }
   };
@@ -786,6 +634,14 @@ export default function AddTaskScreen() {
     setShowRecordModal(false);
   };
 
+  const retryLoadEmployees = () => {
+    loadEmployeesFromAPI();
+  };
+
+  const retryLoadProjects = () => {
+    loadProjectsFromAPI();
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -822,7 +678,44 @@ export default function AddTaskScreen() {
           />
         </View>
 
-        {/* Assign To Section - Now using real employee data */}
+        {/* Project Selection Section - NEW */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Project *</Text>
+            {selectedProject && (
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={clearSelectedProject}
+              >
+                <Ionicons name="close-circle" size={20} color="#FF3B30" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.assignButton}
+            onPress={() => setShowProjectModal(true)}
+            activeOpacity={0.7}
+          >
+            {selectedProject ? (
+              <View style={styles.selectedItem}>
+                <Ionicons name="folder-outline" size={20} color="#007AFF" />
+                <Text style={styles.selectedItemText}>
+                  {selectedProject.name}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color="#666" />
+              </View>
+            ) : (
+              <View style={styles.assignPlaceholder}>
+                <Ionicons name="folder-outline" size={20} color="#007AFF" />
+                <Text style={styles.assignPlaceholderText}>
+                  Tap to select a project
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Assign To Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Assign To *</Text>
@@ -842,7 +735,12 @@ export default function AddTaskScreen() {
           >
             {assignedTo ? (
               <View style={styles.selectedEmployee}>
-                <View style={styles.selectedEmployeeAvatar}>
+                <View
+                  style={[
+                    styles.selectedEmployeeAvatar,
+                    { backgroundColor: getRandomColor(assignedTo.id) },
+                  ]}
+                >
                   <Text style={styles.selectedEmployeeAvatarText}>
                     {assignedTo.avatar}
                   </Text>
@@ -960,7 +858,7 @@ export default function AddTaskScreen() {
               </Text>
             ) : (
               <Text style={styles.descriptionPlaceholder}>
-                Tap to add description or use AI...
+                Tap to add description...
               </Text>
             )}
             <View style={styles.descriptionPreviewFooter}>
@@ -1073,74 +971,143 @@ export default function AddTaskScreen() {
           />
         )}
 
-        {/* Spacer for floating button */}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating AI Button */}
-      {title.trim() && title.length > 3 && (
-        <TouchableOpacity
-          style={styles.floatingAiButton}
-          onPress={() => setShowAiOptions(!showAiOptions)}
-        >
-          <Ionicons name="sparkles" size={24} color="#fff" />
-
-          {showAiOptions && (
-            <View style={styles.aiOptionsPanel}>
-              <TouchableOpacity
-                style={[styles.aiOption, styles.generateOption]}
-                onPress={handleGenerateDescription}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={18}
-                  color="#007AFF"
-                />
-                <Text style={styles.aiOptionText}>Generate Description</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.enhanceOption]}
-                onPress={handleEnhanceTask}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="star-outline" size={18} color="#5856D6" />
-                <Text style={styles.aiOptionText}>Enhance Task</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.scheduleOption]}
-                onPress={handlePlanWithSchedule}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="calendar-outline" size={18} color="#34C759" />
-                <Text style={styles.aiOptionText}>Plan with Schedule</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.priorityOption]}
-                onPress={handleAutoPriority}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="flag-outline" size={18} color="#FF9500" />
-                <Text style={styles.aiOptionText}>Auto Priority</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.aiOption, styles.createOption]}
-                onPress={handleCreateTaskWithAI}
-                disabled={isGeneratingAI}
-              >
-                <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
-                <Text style={styles.aiOptionText}>Create Task with AI</Text>
+      {/* Project Selection Modal - NEW */}
+      <Modal
+        visible={showProjectModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowProjectModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.employeeModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Project</Text>
+              <TouchableOpacity onPress={() => setShowProjectModal(false)}>
+                <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-          )}
-        </TouchableOpacity>
-      )}
 
-      {/* Employee Selection Modal - Now using real employee data */}
+            {/* Search Input */}
+            <View style={styles.searchContainer}>
+              <Ionicons
+                name="search-outline"
+                size={20}
+                color="#999"
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search projects..."
+                value={projectSearch}
+                onChangeText={setProjectSearch}
+                placeholderTextColor="#999"
+              />
+              {projectSearch ? (
+                <TouchableOpacity onPress={() => setProjectSearch("")}>
+                  <Ionicons name="close-circle" size={20} color="#999" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* Error State */}
+            {projectError && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="warning-outline" size={40} color="#FF3B30" />
+                <Text style={styles.errorText}>{projectError}</Text>
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={retryLoadProjects}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Loading Indicator */}
+            {loadingProjects && !projectError ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={styles.loadingText}>Loading projects...</Text>
+              </View>
+            ) : (
+              !projectError && (
+                <FlatList
+                  data={filteredProjects}
+                  keyExtractor={(item) =>
+                    (item._id || item.ProjectId || item.id)?.toString()
+                  }
+                  style={styles.employeesList}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.employeeItem}
+                      onPress={() => selectProject(item)}
+                    >
+                      <View
+                        style={[
+                          styles.projectIconContainer,
+                          { backgroundColor: getRandomColor(item._id) },
+                        ]}
+                      >
+                        <Ionicons name="folder" size={24} color="#fff" />
+                      </View>
+                      <View style={styles.employeeItemInfo}>
+                        <Text style={styles.employeeItemName}>
+                          {item.Name || item.name}
+                        </Text>
+                        <Text style={styles.employeeItemRole} numberOfLines={1}>
+                          {item.Description || "No description"}
+                        </Text>
+                      </View>
+                      {selectedProject?.id ===
+                        (item._id || item.ProjectId || item.id) && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={24}
+                          color="#4CAF50"
+                        />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  ListEmptyComponent={
+                    !loadingProjects && !projectError ? (
+                      <View style={styles.emptyList}>
+                        <Ionicons
+                          name="folder-open-outline"
+                          size={50}
+                          color="#ccc"
+                        />
+                        <Text style={styles.emptyListText}>
+                          No projects found
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.refreshButton}
+                          onPress={loadProjectsFromAPI}
+                        >
+                          <Ionicons name="refresh" size={20} color="#fff" />
+                          <Text style={styles.refreshButtonText}>Refresh</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null
+                  }
+                />
+              )
+            )}
+
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setShowProjectModal(false)}
+            >
+              <Text style={styles.closeModalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Employee Selection Modal */}
       <Modal
         visible={showEmployeeModal}
         animationType="slide"
@@ -1178,73 +1145,94 @@ export default function AddTaskScreen() {
               ) : null}
             </View>
 
+            {/* Error State */}
+            {employeeError && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="warning-outline" size={40} color="#FF3B30" />
+                <Text style={styles.errorText}>{employeeError}</Text>
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={retryLoadEmployees}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Loading Indicator */}
-            {loadingEmployees ? (
+            {loadingEmployees && !employeeError ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4CAF50" />
                 <Text style={styles.loadingText}>Loading employees...</Text>
               </View>
             ) : (
-              /* Employees List */
-              <FlatList
-                data={filteredEmployees}
-                keyExtractor={(item) => item.id}
-                style={styles.employeesList}
-                showsVerticalScrollIndicator={false}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.employeeItem}
-                    onPress={() => selectEmployee(item)}
-                  >
-                    <View style={styles.employeeItemAvatar}>
-                      <Text style={styles.employeeItemAvatarText}>
-                        {item.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")
-                          .toUpperCase()
-                          .substring(0, 2)}
-                      </Text>
-                    </View>
-                    <View style={styles.employeeItemInfo}>
-                      <Text style={styles.employeeItemName}>{item.name}</Text>
-                      <Text style={styles.employeeItemRole}>
-                        {item.roleName}
-                      </Text>
-                      <Text style={styles.employeeItemEmail}>{item.email}</Text>
-                      {item.department && (
-                        <Text style={styles.employeeItemDepartment}>
-                          {item.department}
-                        </Text>
-                      )}
-                    </View>
-                    {assignedTo?.id === item.id && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={24}
-                        color="#4CAF50"
-                      />
-                    )}
-                  </TouchableOpacity>
-                )}
-                ListEmptyComponent={
-                  <View style={styles.emptyList}>
-                    <Ionicons name="people-outline" size={50} color="#ccc" />
-                    <Text style={styles.emptyListText}>No employees found</Text>
+              !employeeError && (
+                <FlatList
+                  data={filteredEmployees}
+                  keyExtractor={(item) => item.id?.toString()}
+                  style={styles.employeesList}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
                     <TouchableOpacity
-                      style={styles.addEmployeeButton}
-                      onPress={() => {
-                        setShowEmployeeModal(false);
-                        navigation.navigate("Roles");
-                      }}
+                      style={styles.employeeItem}
+                      onPress={() => selectEmployee(item)}
                     >
-                      <Text style={styles.addEmployeeButtonText}>
-                        Add Employee in Roles
-                      </Text>
+                      <View
+                        style={[
+                          styles.employeeItemAvatar,
+                          { backgroundColor: getRandomColor(item.id) },
+                        ]}
+                      >
+                        <Text style={styles.employeeItemAvatarText}>
+                          {item.avatar}
+                        </Text>
+                      </View>
+                      <View style={styles.employeeItemInfo}>
+                        <Text style={styles.employeeItemName}>{item.name}</Text>
+                        <Text style={styles.employeeItemRole}>
+                          {item.roleName}
+                        </Text>
+                        <Text style={styles.employeeItemEmail}>
+                          {item.email}
+                        </Text>
+                        {item.department && (
+                          <Text style={styles.employeeItemDepartment}>
+                            {item.department}
+                          </Text>
+                        )}
+                      </View>
+                      {assignedTo?.id === item.id && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={24}
+                          color="#4CAF50"
+                        />
+                      )}
                     </TouchableOpacity>
-                  </View>
-                }
-              />
+                  )}
+                  ListEmptyComponent={
+                    !loadingEmployees && !employeeError ? (
+                      <View style={styles.emptyList}>
+                        <Ionicons
+                          name="people-outline"
+                          size={50}
+                          color="#ccc"
+                        />
+                        <Text style={styles.emptyListText}>
+                          No employees found
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.refreshButton}
+                          onPress={loadEmployeesFromAPI}
+                        >
+                          <Ionicons name="refresh" size={20} color="#fff" />
+                          <Text style={styles.refreshButtonText}>Refresh</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null
+                  }
+                />
+              )
             )}
 
             <TouchableOpacity
@@ -1262,13 +1250,18 @@ export default function AddTaskScreen() {
         <TouchableOpacity
           style={[
             styles.addButton,
-            (!title.trim() || !assignedTo || isGeneratingAI) &&
+            (!title.trim() ||
+              !selectedProject ||
+              !assignedTo ||
+              isSubmitting) &&
               styles.buttonDisabled,
           ]}
           onPress={addTask}
-          disabled={!title.trim() || !assignedTo || isGeneratingAI}
+          disabled={
+            !title.trim() || !selectedProject || !assignedTo || isSubmitting
+          }
         >
-          {isGeneratingAI ? (
+          {isSubmitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <>
@@ -1515,7 +1508,68 @@ export default function AddTaskScreen() {
   );
 }
 
-// Add new styles for employee avatars and loading
+// Helper function to generate random colors for avatars
+const getRandomColor = (seed) => {
+  const colors = [
+    "#4CAF50",
+    "#2196F3",
+    "#9C27B0",
+    "#FF9800",
+    "#E91E63",
+    "#00BCD4",
+    "#FF5722",
+    "#3F51B5",
+    "#8BC34A",
+    "#FFC107",
+  ];
+  const index = (seed?.toString()?.length || 0) % colors.length;
+  return colors[index];
+};
+
+const handleCopyDescription = () => {
+  if (description?.trim()) {
+    Alert.alert("Copied", "Description copied to clipboard");
+  }
+};
+
+const handleClearDescription = () => {
+  Alert.alert(
+    "Clear Description",
+    "Are you sure you want to clear the description?",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        onPress: () => setDescription(""),
+        style: "destructive",
+      },
+    ],
+  );
+};
+
+// Add these new styles
+const additionalStyles = {
+  selectedItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  selectedItemText: {
+    flex: 1,
+    fontSize: 16,
+    color: "#1a1a1a",
+  },
+  projectIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+};
+
+// Merge styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1583,7 +1637,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     color: "#1a1a1a",
   },
-  // Assign To Styles
   assignButton: {
     borderWidth: 1,
     borderColor: "#e9ecef",
@@ -1599,7 +1652,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4CAF50",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -1635,7 +1687,6 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 4,
   },
-  // Modal Overlay
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -1691,7 +1742,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4CAF50",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -1733,17 +1783,20 @@ const styles = StyleSheet.create({
     color: "#666",
     marginTop: 10,
   },
-  addEmployeeButton: {
-    marginTop: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+  refreshButton: {
     backgroundColor: "#4CAF50",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 8,
+    marginTop: 15,
   },
-  addEmployeeButtonText: {
+  refreshButtonText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+    marginLeft: 8,
   },
   closeModalButton: {
     backgroundColor: "#f0f0f0",
@@ -1983,74 +2036,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  floatingAiButton: {
-    position: "absolute",
-    bottom: 90,
-    right: 16,
-    backgroundColor: "#007AFF",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  aiOptionsPanel: {
-    position: "absolute",
-    bottom: 70,
-    right: 0,
-    width: 200,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  aiOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  generateOption: {
-    backgroundColor: "#f0f8ff",
-  },
-  enhanceOption: {
-    backgroundColor: "#f0f0ff",
-  },
-  scheduleOption: {
-    backgroundColor: "#f0fff0",
-  },
-  priorityOption: {
-    backgroundColor: "#fff5e6",
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  createOption: {
-    backgroundColor: "#e6f7ff",
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  aiOptionText: {
-    fontSize: 13,
-    fontWeight: "500",
-    marginLeft: 8,
-    color: "#333",
-  },
   fullscreenModal: {
     flex: 1,
     backgroundColor: "#fff",
@@ -2178,6 +2163,10 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     alignItems: "center",
+    padding: 20,
+    backgroundColor: "#fff5f5",
+    borderRadius: 8,
+    marginVertical: 10,
   },
   errorText: {
     fontSize: 16,
@@ -2185,6 +2174,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 10,
     textAlign: "center",
+  },
+  retryButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   modalButtons: {
     padding: 20,
@@ -2290,4 +2291,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  // Add the new styles
+  ...additionalStyles,
 });

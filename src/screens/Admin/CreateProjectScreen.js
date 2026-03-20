@@ -13,10 +13,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getRequest, postRequest } from "../../services/apiService";
+import { getRequest, postRequest, putRequest } from "../../services/apiService";
 
 export default function CreateProjectScreen({ navigation, route }) {
-  const { user } = route.params || {};
+  const { user, project, mode } = route.params || {};
+  const isEditMode = mode === "edit";
 
   const [formData, setFormData] = useState({
     name: "",
@@ -31,6 +32,7 @@ export default function CreateProjectScreen({ navigation, route }) {
   });
 
   const [users, setUsers] = useState([]);
+  const [managers, setManagers] = useState([]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [isGeneratingId, setIsGeneratingId] = useState(false);
   const [projectIdError, setProjectIdError] = useState("");
@@ -41,31 +43,80 @@ export default function CreateProjectScreen({ navigation, route }) {
   useEffect(() => {
     loadUsers();
     loadProjects();
-    generateProjectId();
   }, []);
+
+  // Populate form when projects and users are loaded in edit mode
+  useEffect(() => {
+    if (isEditMode && project && managers.length > 0) {
+      populateFormForEdit();
+    } else if (!isEditMode && projects.length > 0) {
+      generateProjectId();
+    }
+  }, [isEditMode, project, managers, projects]);
+
+  const populateFormForEdit = () => {
+    console.log("📝 Populating form for edit mode with project:", project);
+
+    // Find the assigned manager from the project data
+    const assignedManager = managers.find(
+      (m) =>
+        m.UserID === project.AssignedTo ||
+        m.id === project.AssignedTo ||
+        m.UserID === project.assignedTo ||
+        m.id === project.assignedTo,
+    );
+
+    setFormData({
+  name: project.Name || "",
+  description: project.Description || "",
+  startDate: project.StartDate || "",
+  endDate: project.EndDate || "",
+  budget: project.Budget ? project.Budget.toString() : "",
+  status: project.Status || "planning",
+  client: project.Client || "",
+  assignedTo: assignedManager || null,
+  projectId: project.ProjectId || "",
+});
+  };
 
   const loadUsers = async () => {
     try {
+      console.log("📊 Loading users...");
       const response = await getRequest("/user/getusers");
+      console.log("📊 Users response:", response);
+
       const usersData = response.users || response || [];
 
       // Map user data to expected format
       const mappedUsers = usersData.map((u) => ({
         id: u.UserID || u.id,
-        UserID: u.UserID,
+        UserID: u.UserID || u.id,
         name:
           u.FullName ||
           u.fullName ||
-          `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+          u.name ||
+          `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
+          "Unknown",
         firstName: u.firstName || "",
         lastName: u.lastName || "",
-        email: u.EmailID || u.email,
-        role: u.RoleName || u.role || "Developer",
+        email: u.EmailID || u.email || u.Email || "",
+        role: u.RoleName || u.role || u.Role || "Developer",
         isActive: u.IsActive !== false,
       }));
 
       // Filter active users only
-      setUsers(mappedUsers.filter((u) => u.isActive));
+      const activeUsers = mappedUsers.filter((u) => u.isActive);
+      setUsers(activeUsers);
+
+      // Filter managers only
+      const managerUsers = activeUsers.filter(
+        (u) => u.role && u.role.toLowerCase().includes("manager"),
+      );
+      setManagers(managerUsers);
+
+      console.log(
+        `📊 Found ${managerUsers.length} managers out of ${activeUsers.length} active users`,
+      );
     } catch (error) {
       console.error("Error loading users:", error);
       Alert.alert("Error", "Failed to load users");
@@ -74,16 +125,20 @@ export default function CreateProjectScreen({ navigation, route }) {
 
   const loadProjects = async () => {
     try {
+      console.log("📊 Loading projects...");
       const response = await getRequest("/project/get-projects");
+      console.log("📊 Projects response:", response);
+
       setProjects(response.projects || response || []);
     } catch (error) {
       console.error("Error loading projects:", error);
-      // Don't show alert here, just log
     }
   };
 
-  // Generate a unique project ID
+  // Generate a unique project ID (only for create mode)
   const generateProjectId = async () => {
+    if (isEditMode) return;
+
     setIsGeneratingId(true);
     setProjectIdError("");
 
@@ -91,15 +146,22 @@ export default function CreateProjectScreen({ navigation, route }) {
       const year = new Date().getFullYear();
       let sequence = 1;
 
-      const validProjects = projects.filter((p) => {
-        const id = p.projectId || p.ProjectId || p.id || "";
-        return id.startsWith("PRJ-") && id.includes(year.toString());
+      const projectList = projects || [];
+
+      const validProjects = projectList.filter((p) => {
+        const id = p.ProjectId || p.projectId || p.id || "";
+        return (
+          typeof id === "string" &&
+          id.startsWith("PRJ-") &&
+          id.includes(year.toString())
+        );
       });
 
       if (validProjects.length > 0) {
         const sequences = validProjects
           .map((p) => {
-            const projectId = p.projectId || p.ProjectId || p.id || "";
+            const projectId = p.ProjectId || p.projectId || p.id || "";
+            if (typeof projectId !== "string") return 0;
             const parts = projectId.split("-");
             return parts.length === 3 ? parseInt(parts[2]) : 0;
           })
@@ -117,9 +179,7 @@ export default function CreateProjectScreen({ navigation, route }) {
       const paddedSequence = sequence.toString().padStart(3, "0");
       const generatedId = `PRJ-${year}-${paddedSequence}`;
 
-      if (validateProjectId(generatedId)) {
-        setFormData((prev) => ({ ...prev, projectId: generatedId }));
-      }
+      setFormData((prev) => ({ ...prev, projectId: generatedId }));
     } catch (error) {
       console.error("Error generating project ID:", error);
       setProjectIdError("Failed to generate project ID");
@@ -143,8 +203,9 @@ export default function CreateProjectScreen({ navigation, route }) {
     const currentYear = new Date().getFullYear();
     const projectYear = parseInt(year);
 
-    if (projectYear < currentYear) {
-      setProjectIdError("Project year cannot be in the past");
+    if (projectYear < currentYear - 1) {
+      // Allow previous year
+      setProjectIdError("Project year cannot be more than 1 year in the past");
       return false;
     }
 
@@ -161,9 +222,17 @@ export default function CreateProjectScreen({ navigation, route }) {
       return false;
     }
 
-    if (id.length < 11 || id.length > 15) {
-      setProjectIdError("Project ID must be between 11-15 characters");
-      return false;
+    // Check for duplicate ID only in create mode
+    if (!isEditMode) {
+      const isDuplicate = projects.some((p) => {
+        const pId = p.ProjectId || p.projectId || p.id;
+        return pId === id;
+      });
+
+      if (isDuplicate) {
+        setProjectIdError("Project ID already exists");
+        return false;
+      }
     }
 
     setProjectIdError("");
@@ -232,7 +301,7 @@ export default function CreateProjectScreen({ navigation, route }) {
     return true;
   };
 
-  const handleCreateProject = async () => {
+  const handleSubmit = async () => {
     // Validation
     if (!formData.projectId.trim()) {
       Alert.alert("Validation Error", "Project ID is required");
@@ -274,7 +343,7 @@ export default function CreateProjectScreen({ navigation, route }) {
     }
 
     if (!formData.assignedTo) {
-      Alert.alert("Validation Error", "Please assign the project to a user");
+      Alert.alert("Validation Error", "Please assign the project to a manager");
       return;
     }
 
@@ -296,67 +365,69 @@ export default function CreateProjectScreen({ navigation, route }) {
         Budget: formData.budget ? parseFloat(formData.budget) : 0,
         Status: formData.status,
         CreatedBy: user?.UserID || user?.id || "1",
-        CreatedByName: user?.name || user?.firstName || "Admin",
         AssignedTo: formData.assignedTo.UserID || formData.assignedTo.id,
       };
 
-      console.log("📝 Creating project:", projectData);
+      console.log(
+        `📝 ${isEditMode ? "Updating" : "Creating"} project:`,
+        projectData,
+      );
 
-      // Create project via API using generic postRequest
-      const result = await postRequest("/project/create-project", projectData);
+      let result;
 
-      // If project created successfully and has an ID, assign the user
-      if (result && (result.projectId || result.ProjectId || result.id)) {
-        const projectId = result.projectId || result.ProjectId || result.id;
+      if (isEditMode) {
 
-        try {
-          // Assign user to project using generic postRequest
-          await postRequest("/project/assign-user", {
-            projectId: projectId,
-            userId: formData.assignedTo.UserID || formData.assignedTo.id,
-          });
-        } catch (assignError) {
-          console.warn(
-            "Project created but user assignment failed:",
-            assignError,
-          );
-          // Don't fail the whole operation, just warn
-        }
+  const projectId =
+    project.id ||
+    project.ProjectID ||
+    project.ProjectId ||
+    project.projectId;
+
+  console.log("Updating project with ID:", projectId);
+
+  result = await putRequest(
+    `/project/update-project/${projectId}`,
+    projectData
+  );
+}else {
+        // Create new project
+        result = await postRequest("/project/create-project", projectData);
       }
+
+      console.log("✅ API Response:", result);
 
       Alert.alert(
         "✅ Success",
-        `Project "${formData.name}" created successfully!\n\nProject ID: ${formData.projectId}\nAssigned to: ${formData.assignedTo.name}`,
+        `Project "${formData.name}" ${isEditMode ? "updated" : "created"} successfully!`,
         [
           {
-            text: "Back to Dashboard",
-            onPress: () => navigation.navigate("AdminHome", { user }),
-          },
-          {
-            text: "Create Another",
+            text: "OK",
             onPress: () => {
-              setFormData({
-                name: "",
-                description: "",
-                startDate: "",
-                endDate: "",
-                budget: "",
-                status: "planning",
-                client: "",
-                assignedTo: null,
-                projectId: "",
-              });
-              generateProjectId();
+              if (isEditMode) {
+                // Go back to previous screen
+              navigation.navigate("ProjectManagement");
+              } else {
+                // Navigate to projects list
+                navigation.navigate("AdminHome", { user });
+              }
             },
           },
         ],
       );
     } catch (error) {
-      console.error("Error creating project:", error);
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to create project",
+      console.error(
+        `❌ Error ${isEditMode ? "updating" : "creating"} project:`,
+        error,
       );
+
+      let errorMessage = `Failed to ${isEditMode ? "update" : "create"} project`;
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      Alert.alert("Error", errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -388,7 +459,7 @@ export default function CreateProjectScreen({ navigation, route }) {
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select User</Text>
+            <Text style={styles.modalTitle}>Select Manager</Text>
             <TouchableOpacity
               onPress={() => setShowUserModal(false)}
               style={styles.modalCloseButton}
@@ -397,9 +468,16 @@ export default function CreateProjectScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.managerCountContainer}>
+            <Text style={styles.managerCountText}>
+              👥 {managers.length} Manager{managers.length !== 1 ? "s" : ""}{" "}
+              Available
+            </Text>
+          </View>
+
           <FlatList
-            data={users}
-            keyExtractor={(item) => item.id?.toString()}
+            data={managers}
+            keyExtractor={(item) => (item.id || item.UserID)?.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={[
@@ -414,17 +492,15 @@ export default function CreateProjectScreen({ navigation, route }) {
               >
                 <View style={styles.userAvatar}>
                   <Text style={styles.userAvatarText}>
-                    {item.name?.charAt(0) || item.firstName?.charAt(0) || "U"}
+                    {item.name?.charAt(0) || item.firstName?.charAt(0) || "M"}
                   </Text>
                 </View>
                 <View style={styles.userInfo}>
-                  <Text style={styles.userName}>
-                    {item.name || `${item.firstName} ${item.lastName}`}
-                  </Text>
+                  <Text style={styles.userName}>{item.name}</Text>
                   <Text style={styles.userEmail}>{item.email}</Text>
-                  <Text style={styles.userRole}>
-                    {item.role || "Team Member"}
-                  </Text>
+                  <View style={styles.roleBadge}>
+                    <Text style={styles.roleBadgeText}>{item.role}</Text>
+                  </View>
                 </View>
                 {formData.assignedTo?.id === item.id && (
                   <Text style={styles.checkmark}>✓</Text>
@@ -432,7 +508,13 @@ export default function CreateProjectScreen({ navigation, route }) {
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyList}>No users found</Text>
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyEmoji}>👔</Text>
+                <Text style={styles.emptyTitle}>No Managers Found</Text>
+                <Text style={styles.emptyMessage}>
+                  Please ensure users with Manager role are added to the system
+                </Text>
+              </View>
             }
           />
         </View>
@@ -455,9 +537,13 @@ export default function CreateProjectScreen({ navigation, route }) {
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Create New Project</Text>
+            <Text style={styles.headerTitle}>
+              {isEditMode ? "Edit Project" : "Create New Project"}
+            </Text>
             <Text style={styles.headerSubtitle}>
-              Fill in the project details
+              {isEditMode
+                ? "Update project details"
+                : "Fill in the project details"}
             </Text>
           </View>
         </View>
@@ -482,17 +568,19 @@ export default function CreateProjectScreen({ navigation, route }) {
                 placeholderTextColor="#adb5bd"
                 maxLength={15}
                 autoCapitalize="characters"
-                editable={!isLoading}
+                editable={!isLoading && !isEditMode}
               />
-              <TouchableOpacity
-                style={styles.generateButton}
-                onPress={generateProjectId}
-                disabled={isGeneratingId || isLoading}
-              >
-                <Text style={styles.generateButtonText}>
-                  {isGeneratingId ? "..." : "🔄"}
-                </Text>
-              </TouchableOpacity>
+              {!isEditMode && (
+                <TouchableOpacity
+                  style={styles.generateButton}
+                  onPress={generateProjectId}
+                  disabled={isGeneratingId || isLoading}
+                >
+                  <Text style={styles.generateButtonText}>
+                    {isGeneratingId ? "..." : "🔄"}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
             {projectIdError ? (
               <Text style={styles.errorText}>{projectIdError}</Text>
@@ -517,7 +605,6 @@ export default function CreateProjectScreen({ navigation, route }) {
               maxLength={100}
               editable={!isLoading}
             />
-            <Text style={styles.charCount}>{formData.name.length}/100</Text>
           </View>
 
           {/* Client */}
@@ -536,13 +623,12 @@ export default function CreateProjectScreen({ navigation, route }) {
               maxLength={50}
               editable={!isLoading}
             />
-            <Text style={styles.charCount}>{formData.client.length}/50</Text>
           </View>
 
           {/* Assign To */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
-              👤 Assign To <Text style={styles.required}>*</Text>
+              👤 Assign to Manager <Text style={styles.required}>*</Text>
             </Text>
             <TouchableOpacity
               style={styles.assignButton}
@@ -553,15 +639,12 @@ export default function CreateProjectScreen({ navigation, route }) {
                 <View style={styles.selectedUser}>
                   <View style={styles.selectedUserAvatar}>
                     <Text style={styles.selectedUserAvatarText}>
-                      {formData.assignedTo.name?.charAt(0) ||
-                        formData.assignedTo.firstName?.charAt(0) ||
-                        "U"}
+                      {formData.assignedTo.name?.charAt(0) || "M"}
                     </Text>
                   </View>
                   <View style={styles.selectedUserInfo}>
                     <Text style={styles.selectedUserName}>
-                      {formData.assignedTo.name ||
-                        `${formData.assignedTo.firstName} ${formData.assignedTo.lastName}`}
+                      {formData.assignedTo.name}
                     </Text>
                     <Text style={styles.selectedUserEmail}>
                       {formData.assignedTo.email}
@@ -569,10 +652,17 @@ export default function CreateProjectScreen({ navigation, route }) {
                   </View>
                 </View>
               ) : (
-                <Text style={styles.assignButtonText}>Select a user</Text>
+                <Text style={styles.assignButtonText}>Select a manager</Text>
               )}
               <Text style={styles.dropdownIcon}>▼</Text>
             </TouchableOpacity>
+
+            {managers.length === 0 && !isLoading && (
+              <Text style={styles.warningText}>
+                ⚠️ No managers available. Please add users with Manager role
+                first.
+              </Text>
+            )}
           </View>
 
           {/* Description */}
@@ -592,9 +682,6 @@ export default function CreateProjectScreen({ navigation, route }) {
               maxLength={500}
               editable={!isLoading}
             />
-            <Text style={styles.charCount}>
-              {formData.description.length}/500
-            </Text>
           </View>
 
           {/* Dates */}
@@ -658,9 +745,6 @@ export default function CreateProjectScreen({ navigation, route }) {
                     styles.statusButton,
                     formData.status === s && styles.statusButtonActive,
                     { borderColor: getStatusColor(s) },
-                    formData.status === s && {
-                      backgroundColor: getStatusColor(s) + "20",
-                    },
                   ]}
                   onPress={() => setFormData({ ...formData, status: s })}
                   disabled={isLoading}
@@ -669,8 +753,6 @@ export default function CreateProjectScreen({ navigation, route }) {
                     style={[
                       styles.statusButtonText,
                       { color: getStatusColor(s) },
-                      formData.status === s && styles.statusButtonTextActive,
-                      formData.status === s && { color: getStatusColor(s) },
                     ]}
                   >
                     {s === "onhold"
@@ -694,18 +776,23 @@ export default function CreateProjectScreen({ navigation, route }) {
 
             <TouchableOpacity
               style={[styles.createButton, isLoading && styles.disabledButton]}
-              onPress={handleCreateProject}
-              disabled={isLoading}
+              onPress={handleSubmit}
+              disabled={isLoading || managers.length === 0}
             >
               <Text style={styles.createButtonText}>
-                {isLoading ? "Creating..." : "Create Project →"}
+                {isLoading
+                  ? isEditMode
+                    ? "Updating..."
+                    : "Creating..."
+                  : isEditMode
+                    ? "Update Project"
+                    : "Create Project"}
               </Text>
             </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
 
-      {/* User Selection Modal */}
       <UserSelectionModal />
     </KeyboardAvoidingView>
   );
@@ -753,7 +840,6 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 20,
-    position: "relative",
   },
   label: {
     fontSize: 14,
@@ -772,11 +858,6 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 16,
     color: "#1a1a1a",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
   inputError: {
     borderColor: "#f72585",
@@ -790,6 +871,12 @@ const styles = StyleSheet.create({
     color: "#6c757d",
     fontSize: 12,
     marginTop: 4,
+  },
+  warningText: {
+    color: "#f72585",
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: "italic",
   },
   projectIdContainer: {
     flexDirection: "row",
@@ -813,13 +900,6 @@ const styles = StyleSheet.create({
   textArea: {
     height: 100,
     textAlignVertical: "top",
-  },
-  charCount: {
-    position: "absolute",
-    right: 8,
-    bottom: -18,
-    fontSize: 11,
-    color: "#adb5bd",
   },
   row: {
     flexDirection: "row",
@@ -845,9 +925,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
-  statusButtonTextActive: {
-    fontWeight: "700",
-  },
   assignButton: {
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -857,11 +934,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
   assignButtonText: {
     color: "#6c757d",
@@ -877,9 +949,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   selectedUserAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#4361ee",
     justifyContent: "center",
     alignItems: "center",
@@ -917,11 +989,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#e9ecef",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
   },
   cancelButtonText: {
     color: "#6c757d",
@@ -934,11 +1001,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#4361ee",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
   },
   disabledButton: {
     opacity: 0.6,
@@ -948,7 +1010,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-  // Modal styles
   modalContainer: {
     flex: 1,
     justifyContent: "flex-end",
@@ -984,6 +1045,18 @@ const styles = StyleSheet.create({
   modalCloseText: {
     fontSize: 16,
     color: "#6c757d",
+  },
+  managerCountContainer: {
+    padding: 12,
+    backgroundColor: "#f8f9fa",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e9ecef",
+  },
+  managerCountText: {
+    fontSize: 14,
+    color: "#4361ee",
+    fontWeight: "600",
+    textAlign: "center",
   },
   userItem: {
     flexDirection: "row",
@@ -1023,8 +1096,15 @@ const styles = StyleSheet.create({
     color: "#6c757d",
     marginBottom: 2,
   },
-  userRole: {
-    fontSize: 12,
+  roleBadge: {
+    backgroundColor: "#e7f5ff",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+  },
+  roleBadgeText: {
+    fontSize: 11,
     color: "#4361ee",
     fontWeight: "500",
   },
@@ -1034,10 +1114,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 12,
   },
-  emptyList: {
-    textAlign: "center",
+  emptyContainer: {
+    alignItems: "center",
     padding: 40,
+  },
+  emptyEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1a1a1a",
+    marginBottom: 8,
+  },
+  emptyMessage: {
+    fontSize: 14,
     color: "#6c757d",
-    fontSize: 16,
+    textAlign: "center",
   },
 });

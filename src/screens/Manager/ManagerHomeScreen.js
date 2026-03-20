@@ -4,19 +4,17 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import {
   Alert,
+  FlatList,
+  Modal,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
-
-const STORAGE_KEYS = {
-  PROJECTS: "taskflow_projects",
-  USERS: "taskflow_users",
-  TASKS: "taskflow_tasks",
-};
+import { getRequest } from "../../services/apiService";
 
 export default function ManagerHomeScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -34,99 +32,169 @@ export default function ManagerHomeScreen({ navigation, route }) {
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Modal state
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+
   // Load all data when screen focuses
   useFocusEffect(
     useCallback(() => {
       loadManagerData();
-    }, []),
+    }, [user]),
   );
 
   const loadManagerData = async () => {
     setLoading(true);
     try {
-      // Get all projects
-      const projectsData = await AsyncStorage.getItem(STORAGE_KEYS.PROJECTS);
-      const allProjects = projectsData ? JSON.parse(projectsData) : [];
-      console.log("📊 All projects:", allProjects.length);
+      // Get current user from params
+      const currentUser = user;
+      console.log("👤 Current Manager:", currentUser);
 
-      // Get all users
-      const usersData = await AsyncStorage.getItem(STORAGE_KEYS.USERS);
-      const allUsers = usersData ? JSON.parse(usersData) : [];
-      console.log("👥 All users:", allUsers.length);
+      if (!currentUser || !currentUser.UserID) {
+        console.error("No user data available");
+        setLoading(false);
+        return;
+      }
 
-      // Get all tasks
-      const tasksData = await AsyncStorage.getItem(STORAGE_KEYS.TASKS);
-      const allTasks = tasksData ? JSON.parse(tasksData) : [];
-      console.log("📋 All tasks:", allTasks.length);
+      // Fetch projects from API
+      const projectsResponse = await getRequest("/project/get-projects");
+      const allProjects = projectsResponse.projects || projectsResponse || [];
+      console.log("📊 All projects from API:", allProjects.length);
 
-      // Filter projects managed by this manager
-      const managed = allProjects.filter(
-        (p) => p.status === "active" || p.status === "planning",
-      );
+      // Filter projects assigned to this manager
+      const managed = allProjects.filter((p) => {
+        const assignedTo = p.AssignedTo || p.assignedTo;
+        return assignedTo === currentUser.UserID;
+      });
+
       setManagedProjects(managed);
+      console.log(`📋 Managed projects: ${managed.length}`);
 
-      // Get team members (users with role developer or team_lead)
-      const team = allUsers.filter(
-        (u) =>
-          u.role === "developer" ||
-          u.role === "team_lead" ||
-          u.role === "viewer",
-      );
-      setTeamMembers(team);
+      // Calculate active projects count
+      const activeCount = managed.filter((p) => {
+        const status = (p.Status || p.status || "").toLowerCase();
+        return status === "active" || status === "planning";
+      }).length;
 
-      // Calculate stats
-      const pendingCount = allTasks.filter(
-        (t) => t.status === "pending" || t.status === "in_progress",
-      ).length;
-      const completedCount = allTasks.filter(
-        (t) => t.status === "completed",
-      ).length;
+      // Fetch users to get team members
+      const usersResponse = await getRequest("/user/getusers");
+      const allUsers = usersResponse.users || usersResponse || [];
+
+      // Filter ONLY developers (no admins, no managers, no team leads)
+      const developers = allUsers.filter((u) => {
+        const role = (u.RoleName || u.role || u.Role || "").toLowerCase();
+        const userId = u.UserID || u.id;
+        const isActive = u.IsActive !== false;
+        const isNotCurrentUser = userId !== currentUser.UserID;
+
+        // Only include users with role containing "developer"
+        const isDeveloper = role.includes("developer");
+
+        return isActive && isNotCurrentUser && isDeveloper;
+      });
+
+      setTeamMembers(developers);
+      console.log(`👥 Developers: ${developers.length}`);
+
+      // Fetch tasks if endpoint exists
+      let pendingCount = 0;
+      let completedCount = 0;
+
+      try {
+        const tasksResponse = await getRequest("/task/get-tasks");
+        const allTasks = tasksResponse.tasks || tasksResponse || [];
+
+        // Filter tasks for manager's projects
+        const managedProjectIds = managed.map(
+          (p) => p.ProjectId || p.projectId || p.id,
+        );
+        const relevantTasks = allTasks.filter((t) =>
+          managedProjectIds.includes(t.ProjectId || t.projectId),
+        );
+
+        pendingCount = relevantTasks.filter((t) => {
+          const status = (t.Status || t.status || "").toLowerCase();
+          return status === "pending" || status === "in_progress";
+        }).length;
+
+        completedCount = relevantTasks.filter((t) => {
+          const status = (t.Status || t.status || "").toLowerCase();
+          return status === "completed";
+        }).length;
+
+        // Set recent activities from tasks
+        const recent = relevantTasks
+          .sort((a, b) => {
+            const dateA = new Date(
+              a.UpdatedAt || a.updatedAt || a.CreatedAt || a.createdAt || 0,
+            );
+            const dateB = new Date(
+              b.UpdatedAt || b.updatedAt || b.CreatedAt || b.createdAt || 0,
+            );
+            return dateB - dateA;
+          })
+          .slice(0, 5)
+          .map((task) => ({
+            id: task.TaskId || task.taskId || task.id,
+            task: task.Title || task.title || task.name || "Task",
+            assignee:
+              task.AssignedToName || task.assignedToName || "Unassigned",
+            status: task.Status || task.status || "pending",
+            projectId: task.ProjectId || task.projectId,
+          }));
+        setRecentActivities(recent);
+
+        // Calculate upcoming deadlines from tasks
+        const today = new Date();
+        const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+        const deadlines = relevantTasks
+          .filter((task) => {
+            const dueDateStr = task.DueDate || task.dueDate;
+            if (!dueDateStr) return false;
+
+            const dueDate = new Date(dueDateStr);
+            const status = (task.Status || task.status || "").toLowerCase();
+
+            return (
+              dueDate >= today && dueDate <= nextWeek && status !== "completed"
+            );
+          })
+          .sort((a, b) => {
+            const dateA = new Date(a.DueDate || a.dueDate);
+            const dateB = new Date(b.DueDate || b.dueDate);
+            return dateA - dateB;
+          })
+          .slice(0, 5)
+          .map((task) => ({
+            id: task.TaskId || task.taskId || task.id,
+            task: task.Title || task.title || task.name || "Untitled Task",
+            assignee:
+              task.AssignedToName || task.assignedToName || "Unassigned",
+            due: formatDueDate(task.DueDate || task.dueDate),
+            priority: task.Priority || task.priority || "medium",
+            projectId: task.ProjectId || task.projectId,
+          }));
+        setUpcomingDeadlines(deadlines);
+      } catch (taskError) {
+        console.log("⚠️ Tasks endpoint not available or error:", taskError);
+        // If tasks endpoint doesn't exist, use project data for activities
+        const recent = managed.slice(0, 5).map((project) => ({
+          id: project.ProjectId || project.projectId || project.id,
+          task: project.Name || project.name || "Project",
+          assignee: "System",
+          status: project.Status || project.status || "active",
+          projectId: project.ProjectId || project.projectId || project.id,
+        }));
+        setRecentActivities(recent);
+      }
 
       setStats({
-        teamMembers: team.length,
-        activeProjects: managed.length,
+        teamMembers: developers.length,
+        activeProjects: activeCount,
         pendingTasks: pendingCount,
         completedTasks: completedCount,
       });
-
-      // Get recent activities (last 5 tasks)
-      const recent = allTasks
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-        .slice(0, 5)
-        .map((task) => ({
-          id: task.id,
-          task: task.title || task.name || "Untitled Task",
-          assignee: task.assignedToName || "Unassigned",
-          status: task.status || "pending",
-          projectId: task.projectId,
-        }));
-      setRecentActivities(recent);
-
-      // Calculate upcoming deadlines (tasks due in next 7 days)
-      const today = new Date();
-      const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-      const deadlines = allTasks
-        .filter((task) => {
-          if (!task.dueDate) return false;
-          const dueDate = new Date(task.dueDate);
-          return (
-            dueDate >= today &&
-            dueDate <= nextWeek &&
-            task.status !== "completed"
-          );
-        })
-        .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-        .slice(0, 5)
-        .map((task) => ({
-          id: task.id,
-          task: task.title || task.name || "Untitled Task",
-          assignee: task.assignedToName || "Unassigned",
-          due: formatDueDate(task.dueDate),
-          priority: task.priority || "medium",
-          projectId: task.projectId,
-        }));
-      setUpcomingDeadlines(deadlines);
     } catch (error) {
       console.error("❌ Error loading manager data:", error);
       Alert.alert("Error", "Failed to load dashboard data");
@@ -178,6 +246,27 @@ export default function ManagerHomeScreen({ navigation, route }) {
     ]);
   };
 
+  // Handle project view details
+  const handleViewDetails = (project) => {
+    setSelectedProject(project);
+    setModalVisible(true);
+  };
+
+  // Handle navigate to full project details
+  const handleGoToProjectDetails = () => {
+    if (selectedProject) {
+      setModalVisible(false);
+      const projectId =
+        selectedProject.ProjectId ||
+        selectedProject.projectId ||
+        selectedProject.id;
+      navigation.navigate("ProjectDetails", {
+        projectId: projectId,
+        user,
+      });
+    }
+  };
+
   // Manager features
   const managerFeatures = [
     {
@@ -185,7 +274,7 @@ export default function ManagerHomeScreen({ navigation, route }) {
       title: "Project List",
       icon: "📋",
       screen: "ProjectList",
-      description: "View all projects",
+      description: "View assigned projects",
       color: "#4361ee",
     },
     {
@@ -193,7 +282,7 @@ export default function ManagerHomeScreen({ navigation, route }) {
       title: "Task Board",
       icon: "📌",
       screen: "TaskBoard",
-      description: "Kanban task board",
+      description: "Task Assigned to Developers",
       color: "#f72585",
     },
     {
@@ -201,7 +290,7 @@ export default function ManagerHomeScreen({ navigation, route }) {
       title: "Team Members",
       icon: "👥",
       screen: "TeamList",
-      description: "Manage your team",
+      description: "View developers",
       color: "#4cc9f0",
     },
     {
@@ -241,13 +330,13 @@ export default function ManagerHomeScreen({ navigation, route }) {
         return "#43aa8b";
       case "in_progress":
       case "inprogress":
-        return "#4cc9f0";
-      case "pending":
-        return "#f8961e";
-      case "planning":
-        return "#4361ee";
       case "active":
         return "#4cc9f0";
+      case "pending":
+      case "planning":
+        return "#f8961e";
+      case "onhold":
+        return "#f72585";
       default:
         return "#6c757d";
     }
@@ -270,41 +359,275 @@ export default function ManagerHomeScreen({ navigation, route }) {
     }
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return "Not set";
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
+  const renderProjectCard = ({ item }) => {
+    const projectId = item.ProjectId || item.projectId || item.id;
+    const projectName = item.Name || item.name || "Unnamed";
+    const projectClient = item.Client || item.client || "N/A";
+    const projectStatus = item.Status || item.status || "active";
+    const startDate = item.StartDate || item.startDate;
+    const endDate = item.EndDate || item.endDate;
+
+    return (
+      <TouchableOpacity
+        style={styles.horizontalProjectCard}
+        onPress={() => handleViewDetails(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.horizontalProjectHeader}>
+          <Text style={styles.horizontalProjectName} numberOfLines={1}>
+            {projectName}
+          </Text>
+          <View
+            style={[
+              styles.horizontalStatusBadge,
+              {
+                backgroundColor: getStatusColor(projectStatus) + "20",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.horizontalStatusText,
+                { color: getStatusColor(projectStatus) },
+              ]}
+            >
+              {projectStatus}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.horizontalProjectClient} numberOfLines={1}>
+          {projectClient}
+        </Text>
+
+        <View style={styles.horizontalProjectFooter}>
+          <Text style={styles.horizontalProjectIcon}>📋</Text>
+          <Text style={styles.horizontalViewText}>View Details →</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // Project Details Modal
+  const ProjectDetailsModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={modalVisible}
+      onRequestClose={() => setModalVisible(false)}
+    >
+      <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              {selectedProject && (
+                <>
+                  {/* Modal Header */}
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Project Details</Text>
+                    <TouchableOpacity
+                      onPress={() => setModalVisible(false)}
+                      style={styles.modalCloseButton}
+                    >
+                      <Text style={styles.modalCloseText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Project ID */}
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Project ID</Text>
+                    <Text style={styles.modalDetailValue}>
+                      {selectedProject.ProjectId ||
+                        selectedProject.projectId ||
+                        selectedProject.id}
+                    </Text>
+                  </View>
+
+                  {/* Project Name */}
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Project Name</Text>
+                    <Text style={styles.modalDetailValue}>
+                      {selectedProject.Name ||
+                        selectedProject.name ||
+                        "Unnamed"}
+                    </Text>
+                  </View>
+
+                  {/* Client */}
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Client</Text>
+                    <Text style={styles.modalDetailValue}>
+                      {selectedProject.Client ||
+                        selectedProject.client ||
+                        "N/A"}
+                    </Text>
+                  </View>
+
+                  {/* Status with Color */}
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Status</Text>
+                    <View style={styles.modalStatusContainer}>
+                      <View
+                        style={[
+                          styles.modalStatusBadge,
+                          {
+                            backgroundColor:
+                              getStatusColor(
+                                selectedProject.Status ||
+                                  selectedProject.status,
+                              ) + "20",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalStatusText,
+                            {
+                              color: getStatusColor(
+                                selectedProject.Status ||
+                                  selectedProject.status,
+                              ),
+                            },
+                          ]}
+                        >
+                          {selectedProject.Status ||
+                            selectedProject.status ||
+                            "active"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Dates */}
+                  <View style={styles.modalRow}>
+                    <View style={[styles.modalDetailItem, { flex: 1 }]}>
+                      <Text style={styles.modalDetailLabel}>Start Date</Text>
+                      <Text style={styles.modalDetailValue}>
+                        {formatDate(
+                          selectedProject.StartDate ||
+                            selectedProject.startDate,
+                        )}
+                      </Text>
+                    </View>
+                    <View style={[styles.modalDetailItem, { flex: 1 }]}>
+                      <Text style={styles.modalDetailLabel}>End Date</Text>
+                      <Text style={styles.modalDetailValue}>
+                        {formatDate(
+                          selectedProject.EndDate || selectedProject.endDate,
+                        )}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Budget */}
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalDetailLabel}>Budget</Text>
+                    <Text style={styles.modalDetailValue}>
+                      $
+                      {(
+                        selectedProject.Budget ||
+                        selectedProject.budget ||
+                        0
+                      ).toLocaleString()}
+                    </Text>
+                  </View>
+
+                  {/* Description */}
+                  {selectedProject.Description ||
+                  selectedProject.description ? (
+                    <View style={styles.modalDetailItem}>
+                      <Text style={styles.modalDetailLabel}>Description</Text>
+                      <Text style={styles.modalDescription}>
+                        {selectedProject.Description ||
+                          selectedProject.description}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Action Buttons */}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.modalCancelButton}
+                      onPress={() => setModalVisible(false)}
+                    >
+                      <Text style={styles.modalCancelButtonText}>Close</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.modalViewDetailsButton}
+                      onPress={handleGoToProjectDetails}
+                    >
+                      <Text style={styles.modalViewDetailsButtonText}>
+                        Full Details →
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading dashboard...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header - Intact with admin style */}
+        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Welcome back,</Text>
-            <Text style={styles.userName}>{user?.name || "Manager"}</Text>
-            <Text style={styles.userRole}>Manager</Text>
+            <Text style={styles.userName}>
+              {user?.FullName || user?.name || "Manager"}
+            </Text>
+            <Text style={styles.userRole}>Project Manager</Text>
           </View>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutIcon}>
             <Text style={styles.logoutIconText}>🚪</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Stats Cards - Matching admin style */}
+        {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <View style={styles.statsRow}>
             <View style={[styles.statCard, { backgroundColor: "#4361ee10" }]}>
               <Text style={styles.statValue}>{stats.teamMembers}</Text>
-              <Text style={styles.statLabel}>Team Members</Text>
+              <Text style={styles.statLabel}>Developers</Text>
             </View>
             <View style={[styles.statCard, { backgroundColor: "#f7258510" }]}>
               <Text style={styles.statValue}>{stats.activeProjects}</Text>
-              <Text style={styles.statLabel}>Projects</Text>
+              <Text style={styles.statLabel}>Active Projects</Text>
             </View>
           </View>
           <View style={styles.statsRow}>
             <View style={[styles.statCard, { backgroundColor: "#4cc9f010" }]}>
               <Text style={styles.statValue}>{stats.pendingTasks}</Text>
-              <Text style={styles.statLabel}>Pending</Text>
+              <Text style={styles.statLabel}>Pending Tasks</Text>
             </View>
             <View style={[styles.statCard, { backgroundColor: "#43aa8b10" }]}>
               <Text style={styles.statValue}>{stats.completedTasks}</Text>
-              <Text style={styles.statLabel}>Completed</Text>
+              <Text style={styles.statLabel}>Completed Tasks</Text>
             </View>
           </View>
         </View>
@@ -336,165 +659,115 @@ export default function ManagerHomeScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Projects Under You */}
+        {/* Projects Assigned to You - Scrollable Horizontal */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Projects Under You</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("ProjectList", { user })}
-            >
-              <Text style={styles.viewAllText}>View All →</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.sectionTitle}>Projects Assigned to You</Text>
 
           {managedProjects.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📁</Text>
-              <Text style={styles.emptyTitle}>No Projects Yet</Text>
+              <Text style={styles.emptyTitle}>No Projects Assigned</Text>
               <Text style={styles.emptyText}>
-                Projects created by admin will appear here
+                Admin hasn't assigned any projects to you yet
               </Text>
             </View>
           ) : (
-            managedProjects.slice(0, 2).map((project) => (
-              <TouchableOpacity
-                key={project.id}
-                style={styles.projectCard}
-                onPress={() =>
-                  navigation.navigate("ProjectDetails", {
-                    projectId: project.id,
-                    user,
-                  })
-                }
-              >
-                <View style={styles.projectHeader}>
-                  <Text style={styles.projectName}>{project.name}</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor: getStatusColor(project.status) + "20",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: getStatusColor(project.status) },
-                      ]}
-                    >
-                      {project.status || "Active"}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.projectClient}>
-                  Client: {project.client || "N/A"}
-                </Text>
-
-                <View style={styles.projectMeta}>
-                  <Text style={styles.metaText}>
-                    📅{" "}
-                    {project.startDate
-                      ? new Date(project.startDate).toLocaleDateString()
-                      : "TBD"}
-                  </Text>
-                  <Text style={styles.metaText}>
-                    👥 {project.team?.length || 0} members
-                  </Text>
-                </View>
-
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${project.progress || 0}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.progressText}>
-                    {project.progress || 0}% complete
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={managedProjects}
+              renderItem={renderProjectCard}
+              keyExtractor={(item) => {
+                const id = item.ProjectId || item.projectId || item.id;
+                return id?.toString() || Math.random().toString();
+              }}
+              contentContainerStyle={styles.horizontalProjectList}
+              nestedScrollEnabled={true}
+            />
           )}
         </View>
 
-        {/* Team Members */}
+        {/* Developers Team - Scrollable Horizontal */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Team Members</Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("TeamList", { user })}
-            >
-              <Text style={styles.viewAllText}>View All →</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.sectionTitle}>Developers Team</Text>
 
           {teamMembers.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>👥</Text>
-              <Text style={styles.emptyTitle}>No Team Members</Text>
+              <Text style={styles.emptyIcon}>👨‍💻</Text>
+              <Text style={styles.emptyTitle}>No Developers</Text>
               <Text style={styles.emptyText}>
-                Team members added by admin will appear here
+                No developers available in the system
               </Text>
             </View>
           ) : (
-            teamMembers.slice(0, 3).map((member) => (
-              <TouchableOpacity
-                key={member.id}
-                style={styles.memberCard}
-                onPress={() =>
-                  navigation.navigate("MemberDetails", {
-                    memberId: member.id,
-                    user,
-                  })
-                }
-              >
-                <View style={styles.memberLeft}>
-                  <View
-                    style={[
-                      styles.memberAvatar,
-                      { backgroundColor: getRoleColor(member.role) + "20" },
-                    ]}
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={teamMembers}
+              renderItem={({ item }) => {
+                const memberId = item.UserID || item.id;
+                const memberName =
+                  item.FullName || item.fullName || item.name || "Unknown";
+                const memberRole =
+                  item.RoleName || item.role || item.Role || "Developer";
+                const initial = memberName
+                  ? memberName.charAt(0).toUpperCase()
+                  : "?";
+
+                return (
+                  <TouchableOpacity
+                    style={styles.horizontalMemberCard}
+                    onPress={() =>
+                      navigation.navigate("MemberDetails", {
+                        memberId: memberId,
+                        user,
+                      })
+                    }
                   >
-                    <Text
+                    <View
                       style={[
-                        styles.memberAvatarText,
-                        { color: getRoleColor(member.role) },
+                        styles.horizontalMemberAvatar,
+                        { backgroundColor: getRoleColor(memberRole) + "20" },
                       ]}
                     >
-                      {member.name ? member.name.charAt(0).toUpperCase() : "?"}
+                      <Text
+                        style={[
+                          styles.horizontalMemberAvatarText,
+                          { color: getRoleColor(memberRole) },
+                        ]}
+                      >
+                        {initial}
+                      </Text>
+                    </View>
+                    <Text style={styles.horizontalMemberName} numberOfLines={1}>
+                      {memberName}
                     </Text>
-                  </View>
-                  <View>
-                    <Text style={styles.memberName}>
-                      {member.name || "Unknown"}
-                    </Text>
-                    <Text style={styles.memberRole}>
-                      {member.role || "Developer"}
-                    </Text>
-                  </View>
-                </View>
-                <View
-                  style={[
-                    styles.roleBadge,
-                    { backgroundColor: getRoleColor(member.role) + "20" },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.roleBadgeText,
-                      { color: getRoleColor(member.role) },
-                    ]}
-                  >
-                    {member.role}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
+                    <View
+                      style={[
+                        styles.horizontalRoleBadge,
+                        { backgroundColor: getRoleColor(memberRole) + "20" },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.horizontalRoleText,
+                          { color: getRoleColor(memberRole) },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {memberRole}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+              keyExtractor={(item) => {
+                const id = item.UserID || item.id;
+                return id?.toString() || Math.random().toString();
+              }}
+              contentContainerStyle={styles.horizontalMemberList}
+              nestedScrollEnabled={true}
+            />
           )}
         </View>
 
@@ -544,10 +817,14 @@ export default function ManagerHomeScreen({ navigation, route }) {
                   key={activity.id}
                   style={styles.activityItem}
                   onPress={() =>
-                    navigation.navigate("TaskDetails", {
-                      taskId: activity.id,
-                      user,
-                    })
+                    navigation.navigate(
+                      activity.projectId ? "ProjectDetails" : "TaskDetails",
+                      {
+                        projectId: activity.projectId,
+                        taskId: activity.id,
+                        user,
+                      },
+                    )
                   }
                 >
                   <View
@@ -567,13 +844,16 @@ export default function ManagerHomeScreen({ navigation, route }) {
         </View>
 
         {/* Logout Button */}
-         <TouchableOpacity
-                  style={styles.logoutButton}
-                  onPress={() => navigation.replace("Login")}
-                >
-                  <Text style={styles.logout}>Logout</Text>
-                </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={() => navigation.replace("Login")}
+        >
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Project Details Modal */}
+      <ProjectDetailsModal />
     </SafeAreaView>
   );
 }
@@ -582,6 +862,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#6c757d",
   },
   header: {
     flexDirection: "row",
@@ -602,7 +892,7 @@ const styles = StyleSheet.create({
   },
   userRole: {
     fontSize: 12,
-    color: "#f72585",
+    color: "#2595f7",
     fontWeight: "600",
     marginTop: 4,
   },
@@ -655,21 +945,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 24,
   },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#1a1a1a",
-  },
-  viewAllText: {
-    fontSize: 14,
-    color: "#f72585",
-    fontWeight: "600",
+    marginBottom: 12,
   },
   featuresGrid: {
     flexDirection: "row",
@@ -736,121 +1016,236 @@ const styles = StyleSheet.create({
     color: "#6c757d",
     textAlign: "center",
   },
-  projectCard: {
+  // Horizontal Project List Styles
+  horizontalProjectList: {
+    paddingRight: 20,
+    gap: 12,
+  },
+  horizontalProjectCard: {
+    width: 220,
     backgroundColor: "#fff",
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
+    marginRight: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  projectHeader: {
+  horizontalProjectHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
-  projectName: {
+  horizontalProjectName: {
     fontSize: 16,
     fontWeight: "600",
     color: "#1a1a1a",
     flex: 1,
+    marginRight: 8,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  horizontalStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  statusText: {
-    fontSize: 11,
+  horizontalStatusText: {
+    fontSize: 9,
     fontWeight: "600",
   },
-  projectClient: {
+  horizontalProjectClient: {
     fontSize: 13,
-    color: "#6c757d",
+    color: "#2595f7",
+    marginBottom: 12,
+  },
+  horizontalProjectFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#f1f3f5",
+    paddingTop: 12,
+  },
+  horizontalProjectIcon: {
+    fontSize: 16,
+  },
+  horizontalViewText: {
+    fontSize: 12,
+    color: "#2595f7",
+    fontWeight: "600",
+  },
+  // Horizontal Member List Styles
+  horizontalMemberList: {
+    paddingRight: 20,
+    gap: 12,
+  },
+  horizontalMemberCard: {
+    width: 110,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    marginRight: 8,
+  },
+  horizontalMemberAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 8,
   },
-  projectMeta: {
-    flexDirection: "row",
-    marginBottom: 12,
-    gap: 16,
+  horizontalMemberAvatarText: {
+    fontSize: 24,
+    fontWeight: "bold",
   },
-  metaText: {
-    fontSize: 12,
-    color: "#6c757d",
-  },
-  progressContainer: {
-    marginTop: 4,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#e9ecef",
-    borderRadius: 3,
-    overflow: "hidden",
+  horizontalMemberName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1a1a1a",
+    textAlign: "center",
     marginBottom: 4,
+    width: "100%",
   },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#f72585",
-    borderRadius: 3,
+  horizontalRoleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
-  progressText: {
-    fontSize: 11,
-    color: "#6c757d",
+  horizontalRoleText: {
+    fontSize: 9,
+    fontWeight: "600",
   },
-  memberCard: {
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    marginBottom: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f3f5",
   },
-  memberLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#1a1a1a",
   },
-  memberAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f8f9fa",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
   },
-  memberAvatarText: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  memberName: {
-    fontSize: 15,
+  modalCloseText: {
+    fontSize: 16,
+    color: "#6c757d",
     fontWeight: "600",
-    color: "#1a1a1a",
-    marginBottom: 2,
   },
-  memberRole: {
+  modalDetailItem: {
+    marginBottom: 16,
+  },
+  modalDetailLabel: {
     fontSize: 12,
     color: "#6c757d",
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-  roleBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+  modalDetailValue: {
+    fontSize: 16,
+    color: "#1a1a1a",
+    fontWeight: "500",
   },
-  roleBadgeText: {
-    fontSize: 11,
+  modalStatusContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  modalStatusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  modalStatusText: {
+    fontSize: 14,
     fontWeight: "600",
   },
+  modalRow: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: "#4a4a4a",
+    lineHeight: 20,
+    backgroundColor: "#f8f9fa",
+    padding: 12,
+    borderRadius: 8,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#f8f9fa",
+    alignItems: "center",
+  },
+  modalCancelButtonText: {
+    fontSize: 14,
+    color: "#6c757d",
+    fontWeight: "600",
+  },
+  modalViewDetailsButton: {
+    flex: 2,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#2595f7",
+    alignItems: "center",
+    shadowColor: "#2595f7",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  modalViewDetailsButtonText: {
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "600",
+  },
+  // Deadline and Activity styles
   deadlineList: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -927,11 +1322,11 @@ const styles = StyleSheet.create({
     margin: 20,
     marginTop: 0,
     marginBottom: 30,
-    backgroundColor: "#f72585",
+    backgroundColor: "#2595f7",
     padding: 16,
     borderRadius: 16,
     alignItems: "center",
-    shadowColor: "#f72585",
+    shadowColor: "#2595f7",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

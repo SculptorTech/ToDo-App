@@ -5,11 +5,13 @@ import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 
 // Regular User Screens (Viewer, Developer)
-import AddTaskScreen from "../screens/AddTaskScreen";
 import TaskListScreen from "../screens/developer/TaskListScreen";
 
 // Manager & Team Lead Screens
+import AddTaskScreen from "../screens/Manager/AddTaskScreen";
 import ManagerHomeScreen from "../screens/Manager/ManagerHomeScreen";
+import ProjectListScreen from "../screens/Manager/ProjectListScreen";
+import TaskBoardScreen from "../screens/Manager/TaskBoardScreen";
 import TeamLeadHomeScreen from "../screens/teamlead/TeamLeadHomeScreen";
 
 // Admin Screens
@@ -138,6 +140,16 @@ export default function AppNavigator({ userRole }) {
         name="RoleManagement"
         component={RoleManagementScreen}
         options={{ title: "Role Management" }}
+      />
+      <Stack.Screen
+        name="ProjectList"
+        component={ProjectListScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TaskBoard"
+        component={TaskBoardScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );
