@@ -67,16 +67,16 @@ export default function CreateProjectScreen({ navigation, route }) {
     );
 
     setFormData({
-  name: project.Name || "",
-  description: project.Description || "",
-  startDate: project.StartDate || "",
-  endDate: project.EndDate || "",
-  budget: project.Budget ? project.Budget.toString() : "",
-  status: project.Status || "planning",
-  client: project.Client || "",
-  assignedTo: assignedManager || null,
-  projectId: project.ProjectId || "",
-});
+      name: project.Name || "",
+      description: project.Description || "",
+      startDate: project.StartDate || "",
+      endDate: project.EndDate || "",
+      budget: project.Budget ? project.Budget.toString() : "",
+      status: project.Status || "planning",
+      client: project.Client || "",
+      assignedTo: assignedManager || null,
+      projectId: project.ProjectId || "",
+    });
   };
 
   const loadUsers = async () => {
@@ -376,20 +376,19 @@ export default function CreateProjectScreen({ navigation, route }) {
       let result;
 
       if (isEditMode) {
+        const projectId =
+          project.id ||
+          project.ProjectID ||
+          project.ProjectId ||
+          project.projectId;
 
-  const projectId =
-    project.id ||
-    project.ProjectID ||
-    project.ProjectId ||
-    project.projectId;
+        console.log("Updating project with ID:", projectId);
 
-  console.log("Updating project with ID:", projectId);
-
-  result = await putRequest(
-    `/project/update-project/${projectId}`,
-    projectData
-  );
-}else {
+        result = await putRequest(
+          `/project/update-project/${projectId}`,
+          projectData,
+        );
+      } else {
         // Create new project
         result = await postRequest("/project/create-project", projectData);
       }
@@ -405,7 +404,7 @@ export default function CreateProjectScreen({ navigation, route }) {
             onPress: () => {
               if (isEditMode) {
                 // Go back to previous screen
-              navigation.navigate("ProjectManagement");
+                navigation.navigate("ProjectManagement");
               } else {
                 // Navigate to projects list
                 navigation.navigate("AdminHome", { user });
@@ -528,7 +527,7 @@ export default function CreateProjectScreen({ navigation, route }) {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
+        {/* Header with Project Name */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
@@ -536,15 +535,13 @@ export default function CreateProjectScreen({ navigation, route }) {
           >
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
-          <View>
+          <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>
               {isEditMode ? "Edit Project" : "Create New Project"}
             </Text>
-            <Text style={styles.headerSubtitle}>
-              {isEditMode
-                ? "Update project details"
-                : "Fill in the project details"}
-            </Text>
+            {isEditMode && project?.Name && (
+              <Text style={styles.projectNameText}>{project.Name}</Text>
+            )}
           </View>
         </View>
 
@@ -825,15 +822,19 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "600",
   },
+  headerTextContainer: {
+    flex: 1,
+  },
   headerTitle: {
     fontSize: 24,
     fontWeight: "bold",
     color: "#fff",
   },
-  headerSubtitle: {
+  projectNameText: {
     fontSize: 14,
-    color: "rgba(255,255,255,0.8)",
+    color: "rgba(255,255,255,0.9)",
     marginTop: 4,
+    fontStyle: "italic",
   },
   form: {
     padding: 20,

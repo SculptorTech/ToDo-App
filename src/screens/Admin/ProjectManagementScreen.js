@@ -10,9 +10,7 @@ import {
   View,
 } from "react-native";
 
-import {
-  getRequest
-} from "../../services/apiService";
+import { getRequest } from "../../services/apiService";
 
 export default function ProjectManagementScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -38,10 +36,10 @@ export default function ProjectManagementScreen({ navigation, route }) {
 
       const projectsData = response.projects || [];
 
-      const normalizedProjects = projectsData.map((p) => ({
-        ...p,
-        id: p.id || p.ProjectID || p.ProjectId,
-      }));
+     const normalizedProjects = projectsData.map((p) => ({
+  ...p,
+  id: p._id,   // ✅ single source of truth
+}));
 
       setProjects(normalizedProjects);
     } catch (error) {
@@ -70,7 +68,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
       const data = await res.json();
       console.log(data);
 
-      getProjects(); // reload list
+      await loadProjects(); // reload list
     } catch (err) {
       console.error(err);
     }
@@ -86,7 +84,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
       body: JSON.stringify(updatedData),
     });
 
-    getProjects();
+    await loadProjects();
   };
   /* ===============================
      UI HELPERS
@@ -106,6 +104,16 @@ export default function ProjectManagementScreen({ navigation, route }) {
         return "#999";
     }
   };
+const confirmDelete = (id) => {
+  Alert.alert(
+    "Delete Project",
+    "Are you sure?",
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", onPress: () => handleDelete(id), style: "destructive" }
+    ]
+  );
+};
 
   /* ===============================
      PROJECT CARD
@@ -117,7 +125,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
         <Text style={styles.projectName}>{item.Name}</Text>
 
         <TouchableOpacity
-          onPress={() => handleDelete(item._id, item.Name)}
+          
           disabled={updatingProjectId === item.ProjectId}
         >
           <View
@@ -165,7 +173,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
 
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDelete(item.id, item.Name)}
+         onPress={() => handleDelete(item._id)}
         >
           <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
@@ -201,7 +209,7 @@ export default function ProjectManagementScreen({ navigation, route }) {
       <FlatList
         data={projects}
         renderItem={renderProject}
-        keyExtractor={(item) => item.id.toString()}
+       keyExtractor={(item) => item._id}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

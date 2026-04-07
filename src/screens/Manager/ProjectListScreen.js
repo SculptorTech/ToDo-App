@@ -2,17 +2,24 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import {
-    Alert,
-    FlatList,
-    RefreshControl,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Platform,
+  RefreshControl,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { getRequest } from "../../services/apiService";
+import {
+  GestureHandlerRootView,
+  Swipeable,
+} from "react-native-gesture-handler";
+import { deleteRequest, getRequest } from "../../services/apiService";
 
 export default function ProjectListScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -22,6 +29,9 @@ export default function ProjectListScreen({ navigation, route }) {
   const [selectedFilter, setSelectedFilter] = useState("all"); // all, active, planning, completed, onhold
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Load projects when screen focuses
   useFocusEffect(
@@ -33,18 +43,18 @@ export default function ProjectListScreen({ navigation, route }) {
   const loadProjects = async () => {
     setLoading(true);
     try {
-      console.log("📊 Loading projects for manager:", user?.UserID);
-
       const response = await getRequest("/project/get-projects");
-      const allProjects = response.projects || response || [];
 
-      // Filter projects assigned to this manager
+      const allProjects = Array.isArray(response.projects)
+        ? response.projects
+        : [];
+
       const assignedProjects = allProjects.filter((p) => {
-        const assignedTo = p.AssignedTo || p.assignedTo;
-        return assignedTo === user?.UserID;
+        return (
+          (p.AssignedTo === user?.UserID || p.assignedTo === user?.UserID) &&
+          Number(p.IsDeleted ?? p.isDeleted ?? 0) === 0
+        );
       });
-
-      console.log(`📋 Found ${assignedProjects.length} assigned projects`);
 
       setProjects(assignedProjects);
       applyFilters(assignedProjects, searchQuery, selectedFilter);
@@ -104,6 +114,59 @@ export default function ProjectListScreen({ navigation, route }) {
     }
 
     setFilteredProjects(filtered);
+  };
+
+  // Handle project deletion
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return;
+
+    setDeleting(true);
+    try {
+      const projectId =
+        projectToDelete.ProjectId ||
+        projectToDelete.projectId ||
+        projectToDelete.id;
+
+      await deleteRequest(`/project/delete-project/${projectId}`);
+
+      // Remove project from state
+      const updatedProjects = projects.filter((p) => {
+        const id = p.ProjectId || p.projectId || p.id;
+        return id !== projectId;
+      });
+
+      setProjects(updatedProjects);
+      applyFilters(updatedProjects, searchQuery, selectedFilter);
+
+      Alert.alert("Success", "Project deleted successfully");
+    } catch (error) {
+      console.error("❌ Error deleting project:", error);
+      Alert.alert("Error", "Failed to delete project");
+    } finally {
+      setDeleting(false);
+      setDeleteModalVisible(false);
+      setProjectToDelete(null);
+    }
+  };
+
+  // Confirmation dialog before deletion
+  const confirmDelete = (project) => {
+    const projectName = project.Name || project.name || "this project";
+    Alert.alert(
+      "Delete Project",
+      `Are you sure you want to delete "${projectName}"? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          onPress: () => {
+            setProjectToDelete(project);
+            setDeleteModalVisible(true);
+          },
+          style: "destructive",
+        },
+      ],
+    );
   };
 
   const getStatusColor = (status) => {
@@ -178,6 +241,22 @@ export default function ProjectListScreen({ navigation, route }) {
     return diffDays;
   };
 
+  // Render right actions for swipeable
+  const renderRightActions = (item) => {
+    return (
+      <TouchableOpacity
+        style={styles.swipeDeleteButton}
+        onPress={() => confirmDelete(item)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.swipeDeleteContent}>
+          <Text style={styles.swipeDeleteIcon}>🗑️</Text>
+          <Text style={styles.swipeDeleteText}>Delete</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const renderProjectCard = ({ item }) => {
     const projectId = item.ProjectId || item.projectId || item.id;
     const projectName = item.Name || item.name || "Unnamed Project";
@@ -193,106 +272,116 @@ export default function ProjectListScreen({ navigation, route }) {
     const isOverdue = daysRemaining < 0;
 
     return (
-      <TouchableOpacity
-        style={styles.projectCard}
-        onPress={() =>
-          navigation.navigate("ProjectDetails", {
-            projectId: projectId,
-            user: user,
-          })
-        }
-        activeOpacity={0.7}
+      <Swipeable
+        renderRightActions={() => renderRightActions(item)}
+        overshootRight={false}
+        rightThreshold={40}
       >
-        {/* Card Header */}
-        <View style={styles.cardHeader}>
-          <View style={styles.titleContainer}>
-            <Text style={styles.projectName}>{projectName}</Text>
-            <Text style={styles.projectId}>ID: {projectId}</Text>
-          </View>
-          <View
-            style={[
-              styles.statusBadge,
-              { backgroundColor: getStatusBgColor(status) },
-            ]}
-          >
-            <Text
-              style={[styles.statusText, { color: getStatusColor(status) }]}
-            >
-              {status.toUpperCase()}
-            </Text>
-          </View>
-        </View>
-
-        {/* Client Info */}
-        <View style={styles.clientContainer}>
-          <Text style={styles.clientLabel}>Client</Text>
-          <Text style={styles.clientName}>{client}</Text>
-        </View>
-
-        {/* Description */}
-        {description ? (
-          <Text style={styles.description} numberOfLines={2}>
-            {description}
-          </Text>
-        ) : null}
-
-        {/* Progress Bar */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Progress</Text>
-            <Text style={styles.progressValue}>{progress}%</Text>
-          </View>
-          <View style={styles.progressBarContainer}>
+        <TouchableOpacity
+          style={styles.projectCard}
+          onPress={() =>
+            navigation.navigate("ProjectDetails", {
+              projectId: projectId,
+              user: user,
+            })
+          }
+          activeOpacity={0.7}
+        >
+          {/* Card Header */}
+          <View style={styles.cardHeader}>
+            <View style={styles.titleContainer}>
+              <Text style={styles.projectName}>{projectName}</Text>
+              <Text style={styles.projectId}>ID: {projectId}</Text>
+            </View>
             <View
               style={[
-                styles.progressBar,
-                {
-                  width: `${progress}%`,
-                  backgroundColor: getProgressColor(status),
-                },
+                styles.statusBadge,
+                { backgroundColor: getStatusBgColor(status) },
               ]}
-            />
-          </View>
-        </View>
-
-        {/* Project Meta */}
-        <View style={styles.metaContainer}>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>📅</Text>
-            <View>
-              <Text style={styles.metaLabel}>Start Date</Text>
-              <Text style={styles.metaValue}>{formatDate(startDate)}</Text>
-            </View>
-          </View>
-
-          <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>🏁</Text>
-            <View>
-              <Text style={styles.metaLabel}>End Date</Text>
-              <Text style={[styles.metaValue, isOverdue && styles.overdueText]}>
-                {formatDate(endDate)}
-                {daysRemaining !== null && !isOverdue && daysRemaining <= 7 && (
-                  <Text style={styles.urgentText}>
-                    {" "}
-                    • {daysRemaining} days left
-                  </Text>
-                )}
-                {isOverdue && (
-                  <Text style={styles.overdueText}> • Overdue</Text>
-                )}
+            >
+              <Text
+                style={[styles.statusText, { color: getStatusColor(status) }]}
+              >
+                {status.toUpperCase()}
               </Text>
             </View>
           </View>
 
-          <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>💰</Text>
-            <View>
-              <Text style={styles.metaLabel}>Budget</Text>
-              <Text style={styles.metaValue}>${budget.toLocaleString()}</Text>
+          {/* Client Info */}
+          <View style={styles.clientContainer}>
+            <Text style={styles.clientLabel}>Client</Text>
+            <Text style={styles.clientName}>{client}</Text>
+          </View>
+
+          {/* Description */}
+          {description ? (
+            <Text style={styles.description} numberOfLines={2}>
+              {description}
+            </Text>
+          ) : null}
+
+          {/* Progress Bar */}
+          <View style={styles.progressSection}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>Progress</Text>
+              <Text style={styles.progressValue}>{progress}%</Text>
+            </View>
+            <View style={styles.progressBarContainer}>
+              <View
+                style={[
+                  styles.progressBar,
+                  {
+                    width: `${progress}%`,
+                    backgroundColor: getProgressColor(status),
+                  },
+                ]}
+              />
             </View>
           </View>
-        </View>
-      </TouchableOpacity>
+
+          {/* Project Meta */}
+          <View style={styles.metaContainer}>
+            <View style={styles.metaItem}>
+              <Text style={styles.metaIcon}>📅</Text>
+              <View>
+                <Text style={styles.metaLabel}>Start Date</Text>
+                <Text style={styles.metaValue}>{formatDate(startDate)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.metaItem}>
+              <Text style={styles.metaIcon}>🏁</Text>
+              <View>
+                <Text style={styles.metaLabel}>End Date</Text>
+                <Text
+                  style={[styles.metaValue, isOverdue && styles.overdueText]}
+                >
+                  {formatDate(endDate)}
+                  {daysRemaining !== null &&
+                    !isOverdue &&
+                    daysRemaining <= 7 && (
+                      <Text style={styles.urgentText}>
+                        {" "}
+                        • {daysRemaining} days left
+                      </Text>
+                    )}
+                  {isOverdue && (
+                    <Text style={styles.overdueText}> • Overdue</Text>
+                  )}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.metaItem}>
+              <Text style={styles.metaIcon}>💰</Text>
+              <View>
+                <Text style={styles.metaLabel}>Budget</Text>
+                <Text style={styles.metaValue}>${budget.toLocaleString()}</Text>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Swipeable>
     );
   };
 
@@ -304,122 +393,172 @@ export default function ProjectListScreen({ navigation, route }) {
     { id: "completed", label: "Completed", color: "#2196F3" },
   ];
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <View>
-          <Text style={styles.headerTitle}>My Projects</Text>
-          <Text style={styles.headerSubtitle}>
-            {filteredProjects.length} project
-            {filteredProjects.length !== 1 ? "s" : ""} assigned
+  // Delete Modal Component
+  const DeleteModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={deleteModalVisible}
+      onRequestClose={() => setDeleteModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalIconContainer}>
+            <Text style={styles.modalIcon}>🗑️</Text>
+          </View>
+          <Text style={styles.modalTitle}>Delete Project</Text>
+          <Text style={styles.modalMessage}>
+            Are you sure you want to delete "
+            {projectToDelete?.Name || projectToDelete?.name || "this project"}"?
+            This action cannot be undone and will remove all associated data.
           </Text>
-        </View>
-      </View>
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search projects by name, client..."
-            placeholderTextColor="#9E9E9E"
-            value={searchQuery}
-            onChangeText={handleSearch}
-          />
-          {searchQuery !== "" && (
-            <TouchableOpacity onPress={() => handleSearch("")}>
-              <Text style={styles.clearIcon}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* Filter Chips */}
-      <View style={styles.filterContainer}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={filters}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          <View style={styles.modalButtons}>
             <TouchableOpacity
-              style={[
-                styles.filterChip,
-                selectedFilter === item.id && styles.filterChipActive,
-                selectedFilter === item.id && { borderColor: item.color },
-              ]}
-              onPress={() => handleFilterChange(item.id)}
+              style={[styles.modalButton, styles.cancelButton]}
+              onPress={() => setDeleteModalVisible(false)}
+              disabled={deleting}
             >
-              <Text
-                style={[
-                  styles.filterText,
-                  selectedFilter === item.id && { color: item.color },
-                ]}
-              >
-                {item.label}
-              </Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
-          )}
-          contentContainerStyle={styles.filterList}
-        />
+            <TouchableOpacity
+              style={[styles.modalButton, styles.deleteConfirmButton]}
+              onPress={handleDeleteProject}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.deleteConfirmText}>Delete</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
+    </Modal>
+  );
 
-      {/* Project List */}
-      <FlatList
-        data={filteredProjects}
-        renderItem={renderProjectCard}
-        keyExtractor={(item) => {
-          const id = item.ProjectId || item.projectId || item.id;
-          return id?.toString() || Math.random().toString();
-        }}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#f72585"]}
-          />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📋</Text>
-            <Text style={styles.emptyTitle}>
-              {loading ? "Loading projects..." : "No Projects Found"}
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+          >
+            <Text style={styles.backText}>←</Text>
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.headerTitle}>My Projects</Text>
+            <Text style={styles.headerSubtitle}>
+              {filteredProjects.length} project
+              {filteredProjects.length !== 1 ? "s" : ""} assigned
             </Text>
-            {!loading && (
-              <>
-                <Text style={styles.emptyText}>
-                  {searchQuery || selectedFilter !== "all"
-                    ? "Try adjusting your search or filters"
-                    : "You don't have any projects assigned yet"}
-                </Text>
-                {(searchQuery || selectedFilter !== "all") && (
-                  <TouchableOpacity
-                    style={styles.clearFiltersButton}
-                    onPress={() => {
-                      setSearchQuery("");
-                      setSelectedFilter("all");
-                      setFilteredProjects(projects);
-                    }}
-                  >
-                    <Text style={styles.clearFiltersText}>Clear Filters</Text>
-                  </TouchableOpacity>
-                )}
-              </>
+          </View>
+        </View>
+
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search projects by name, client..."
+              placeholderTextColor="#9E9E9E"
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+            {searchQuery !== "" && (
+              <TouchableOpacity onPress={() => handleSearch("")}>
+                <Text style={styles.clearIcon}>✕</Text>
+              </TouchableOpacity>
             )}
           </View>
-        }
-        ListFooterComponent={<View style={styles.footer} />}
-      />
-    </SafeAreaView>
+        </View>
+
+        {/* Filter Chips */}
+        <View style={styles.filterContainer}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={filters}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  selectedFilter === item.id && styles.filterChipActive,
+                  selectedFilter === item.id && { borderColor: item.color },
+                ]}
+                onPress={() => handleFilterChange(item.id)}
+              >
+                <Text
+                  style={[
+                    styles.filterText,
+                    selectedFilter === item.id && { color: item.color },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            )}
+            contentContainerStyle={styles.filterList}
+          />
+        </View>
+
+        {/* Project List */}
+        <FlatList
+          data={filteredProjects}
+          renderItem={renderProjectCard}
+          keyExtractor={(item) => {
+            const id = item.ProjectId || item.projectId || item.id;
+            return id?.toString() || Math.random().toString();
+          }}
+          contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#25a3f7"]}
+              tintColor="#25a3f7"
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>📋</Text>
+              <Text style={styles.emptyTitle}>
+                {loading ? "Loading projects..." : "No Projects Found"}
+              </Text>
+              {!loading && (
+                <>
+                  <Text style={styles.emptyText}>
+                    {searchQuery || selectedFilter !== "all"
+                      ? "Try adjusting your search or filters"
+                      : "You don't have any projects assigned yet"}
+                  </Text>
+                  {(searchQuery || selectedFilter !== "all") && (
+                    <TouchableOpacity
+                      style={styles.clearFiltersButton}
+                      onPress={() => {
+                        setSearchQuery("");
+                        setSelectedFilter("all");
+                        setFilteredProjects(projects);
+                      }}
+                    >
+                      <Text style={styles.clearFiltersText}>Clear Filters</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </View>
+          }
+          ListFooterComponent={<View style={styles.footer} />}
+        />
+
+        {/* Delete Modal */}
+        <DeleteModal />
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -690,11 +829,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   clearFiltersButton: {
-    backgroundColor: "#f72585",
+    backgroundColor: "#25a3f7",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
-    shadowColor: "#f72585",
+    shadowColor: "#25a3f7",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -707,5 +846,104 @@ const styles = StyleSheet.create({
   },
   footer: {
     height: 20,
+  },
+  // Swipe Delete Styles
+  swipeDeleteButton: {
+    backgroundColor: "#F44336",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+    borderRadius: 20,
+    marginBottom: 16,
+    marginLeft: 8,
+  },
+  swipeDeleteContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swipeDeleteIcon: {
+    fontSize: 24,
+    color: "#fff",
+    marginBottom: 4,
+  },
+  swipeDeleteText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    padding: 24,
+    width: "85%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    alignItems: "center",
+  },
+  modalIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#F4433620",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalIcon: {
+    fontSize: 32,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#1a1a1a",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: "#6c757d",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    width: "100%",
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#f1f3f5",
+  },
+  cancelButtonText: {
+    color: "#6c757d",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteConfirmButton: {
+    backgroundColor: "#F44336",
+  },
+  deleteConfirmText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

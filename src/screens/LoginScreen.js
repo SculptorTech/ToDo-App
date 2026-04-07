@@ -1,9 +1,11 @@
 // src/screens/LoginScreen.js
 import { useNavigation } from "@react-navigation/native";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,7 +15,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { postRequest } from "../services/apiService"; // Import the API method
+import { postRequest } from "../services/apiService";
+
+const { width, height } = Dimensions.get("window");
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -22,7 +26,28 @@ export default function LoginScreen() {
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+
   const navigation = useNavigation();
+
+  // Start animations on component mount
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   const validateForm = () => {
     let isValid = true;
@@ -53,12 +78,27 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     if (!validateForm()) return;
 
+    // Button press animation
+    Animated.sequence([
+      Animated.spring(buttonScale, {
+        toValue: 0.95,
+        useNativeDriver: true,
+        friction: 3,
+        tension: 40,
+      }),
+      Animated.spring(buttonScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 3,
+        tension: 40,
+      }),
+    ]).start();
+
     setLoading(true);
 
     try {
       console.log("Attempting login with:", { email, password });
 
-      // Using the imported postRequest method
       const response = await postRequest("/user/login", {
         EmailID: email.trim(),
         Password: password.trim(),
@@ -69,15 +109,12 @@ export default function LoginScreen() {
       if (response.token || response.user) {
         const { user, token } = response;
 
-        // Get the role - check different possible field names
         const roleName = user?.RoleName || user?.roleName || user?.role || "";
         const roleLower = roleName.toString().toLowerCase();
 
         console.log("User role:", roleName);
-        console.log("Lowercase role:", roleLower);
 
-        // Navigate based on user role
-        let destinationScreen = "TaskList"; // Default
+        let destinationScreen = "TaskList";
 
         if (roleLower === "administrator" || roleLower === "admin") {
           destinationScreen = "AdminHome";
@@ -93,7 +130,6 @@ export default function LoginScreen() {
 
         console.log("Navigating to:", destinationScreen);
 
-        // Navigate directly
         navigation.replace(destinationScreen, {
           user: user,
           token: token,
@@ -151,24 +187,27 @@ export default function LoginScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.content}>
-          {/* Header with enhanced emoji styling */}
+        <Animated.View
+          style={[
+            styles.content,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
+          {/* Header */}
           <View style={styles.headerContainer}>
-            <View style={styles.titleWrapper}>
-              <Text style={styles.titleEmoji}>🚀</Text>
-              <Text style={styles.title}>TaskFlow</Text>
-              <Text style={styles.titleEmoji}>✨</Text>
-            </View>
-            <View style={styles.subtitleContainer}>
-              <Text style={styles.subtitle}>Role-Based Task Management</Text>
-              <View style={styles.subtitleUnderline} />
-            </View>
+            <Text style={styles.title}>TaskFlow</Text>
+            <View style={styles.divider} />
+            <Text style={styles.subtitle}>Role-Based Task Management</Text>
           </View>
 
-          {/* Welcome Back Message */}
+          {/* Welcome Message */}
           <View style={styles.welcomeContainer}>
-            <Text style={styles.welcomeText}>Welcome Back! 👋</Text>
+            <Text style={styles.welcomeText}>Welcome Back</Text>
             <Text style={styles.welcomeSubtext}>
               Sign in to continue to your dashboard
             </Text>
@@ -176,12 +215,10 @@ export default function LoginScreen() {
 
           {/* Email Input */}
           <View style={styles.inputWrapper}>
-            <View style={styles.labelContainer}>
-              <Text style={styles.labelText}>📧 Email</Text>
-            </View>
+            <Text style={styles.labelText}>Email</Text>
             <TextInput
               placeholder="Enter your email"
-              placeholderTextColor="#999"
+              placeholderTextColor="#9ca3af"
               style={[styles.input, emailError && styles.inputError]}
               value={email}
               onChangeText={handleEmailChange}
@@ -191,21 +228,16 @@ export default function LoginScreen() {
               editable={!loading}
             />
             {emailError ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorIcon}>⚠️</Text>
-                <Text style={styles.errorText}>{emailError}</Text>
-              </View>
+              <Text style={styles.errorText}>{emailError}</Text>
             ) : null}
           </View>
 
           {/* Password Input */}
           <View style={styles.inputWrapper}>
-            <View style={styles.labelContainer}>
-              <Text style={styles.labelText}>🔒 Password</Text>
-            </View>
+            <Text style={styles.labelText}>Password</Text>
             <TextInput
               placeholder="Enter your password"
-              placeholderTextColor="#999"
+              placeholderTextColor="#9ca3af"
               style={[styles.input, passwordError && styles.inputError]}
               secureTextEntry
               value={password}
@@ -213,33 +245,30 @@ export default function LoginScreen() {
               editable={!loading}
             />
             {passwordError ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorIcon}>⚠️</Text>
-                <Text style={styles.errorText}>{passwordError}</Text>
-              </View>
+              <Text style={styles.errorText}>{passwordError}</Text>
             ) : null}
           </View>
 
           {/* Forgot Password Link */}
           <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Forgot Password? 🔑</Text>
+            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
 
           {/* Login Button */}
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <View style={styles.buttonContent}>
+          <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
                 <Text style={styles.buttonText}>Login</Text>
-                <Text style={styles.buttonEmoji}>→</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
 
           {/* Sign Up Link */}
           <View style={styles.signUpContainer}>
@@ -248,10 +277,10 @@ export default function LoginScreen() {
               onPress={() => navigation.navigate("Register")}
               disabled={loading}
             >
-              <Text style={styles.signUpLink}>Sign Up ✨</Text>
+              <Text style={styles.signUpLink}>Sign Up</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -260,7 +289,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#ffffff",
   },
   scrollContainer: {
     flexGrow: 1,
@@ -268,159 +297,118 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: "center",
-    padding: 24,
+    paddingHorizontal: 24,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
     paddingBottom: 30,
   },
   headerContainer: {
-    marginBottom: 30,
+    marginBottom: 48,
     alignItems: "center",
-  },
-  titleWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
   },
   title: {
-    fontSize: 48,
-    fontWeight: "bold",
-    color: "#1a1a1a",
-    letterSpacing: 1,
-    marginHorizontal: 8,
-    textShadowColor: "rgba(0, 0, 0, 0.1)",
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 4,
+    fontSize: 42,
+    fontWeight: "700",
+    color: "#111827",
+    letterSpacing: -0.5,
+    marginBottom: 12,
   },
-  titleEmoji: {
-    fontSize: 40,
-  },
-  subtitleContainer: {
-    alignItems: "center",
+  divider: {
+    width: 40,
+    height: 3,
+    backgroundColor: "#3b82f6",
+    borderRadius: 2,
+    marginBottom: 12,
   },
   subtitle: {
-    fontSize: 18,
-    color: "#6c757d",
-    marginBottom: 8,
-    fontWeight: "500",
-  },
-  subtitleUnderline: {
-    width: 60,
-    height: 3,
-    backgroundColor: "#4361ee",
-    borderRadius: 2,
+    fontSize: 14,
+    color: "#6b7280",
+    fontWeight: "400",
   },
   welcomeContainer: {
-    marginBottom: 30,
-    alignItems: "center",
+    marginBottom: 40,
   },
   welcomeText: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: "600",
-    color: "#1a1a1a",
-    marginBottom: 4,
+    color: "#111827",
+    marginBottom: 8,
   },
   welcomeSubtext: {
-    fontSize: 14,
-    color: "#6c757d",
+    fontSize: 15,
+    color: "#6b7280",
+    lineHeight: 20,
   },
   inputWrapper: {
-    marginBottom: 20,
-  },
-  labelContainer: {
-    marginBottom: 8,
-    marginLeft: 4,
+    marginBottom: 24,
   },
   labelText: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#495057",
+    fontWeight: "500",
+    color: "#374151",
+    marginBottom: 8,
   },
   input: {
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#e9ecef",
-    padding: 16,
-    borderRadius: 16,
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    padding: 14,
+    borderRadius: 8,
     fontSize: 16,
-    color: "#1a1a1a",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    color: "#111827",
   },
   inputError: {
-    borderColor: "#f72585",
-    backgroundColor: "#fff5f5",
+    borderColor: "#ef4444",
+    backgroundColor: "#fef2f2",
   },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
+  errorText: {
+    color: "#ef4444",
+    fontSize: 12,
+    fontWeight: "500",
     marginTop: 6,
     marginLeft: 4,
   },
-  errorIcon: {
-    fontSize: 12,
-    marginRight: 4,
-  },
-  errorText: {
-    color: "#f72585",
-    fontSize: 12,
-    fontWeight: "500",
-  },
   forgotPassword: {
     alignSelf: "flex-end",
-    marginBottom: 24,
+    marginBottom: 32,
   },
   forgotPasswordText: {
-    color: "#4361ee",
+    color: "#3b82f6",
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   button: {
-    backgroundColor: "#4361ee",
-    padding: 18,
-    borderRadius: 16,
-    marginBottom: 20,
-    shadowColor: "#4361ee",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    backgroundColor: "#3b82f6",
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 24,
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   buttonDisabled: {
-    backgroundColor: "#a5b8f0",
+    backgroundColor: "#9ca3af",
     opacity: 0.7,
   },
-  buttonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   buttonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 18,
-    marginRight: 8,
-  },
-  buttonEmoji: {
-    color: "#fff",
-    fontSize: 18,
+    color: "#ffffff",
+    fontWeight: "600",
+    fontSize: 16,
+    textAlign: "center",
   },
   signUpContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 30,
   },
   signUpText: {
-    color: "#6c757d",
-    fontSize: 16,
+    color: "#6b7280",
+    fontSize: 14,
   },
   signUpLink: {
-    color: "#4361ee",
-    fontSize: 16,
-    fontWeight: "700",
+    color: "#3b82f6",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

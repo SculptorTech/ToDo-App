@@ -10,8 +10,11 @@ import TaskListScreen from "../screens/developer/TaskListScreen";
 // Manager & Team Lead Screens
 import AddTaskScreen from "../screens/Manager/AddTaskScreen";
 import ManagerHomeScreen from "../screens/Manager/ManagerHomeScreen";
+import ProjectDetailsScreen from "../screens/Manager/ProjectDetailsScreen";
 import ProjectListScreen from "../screens/Manager/ProjectListScreen";
+import Reports from "../screens/Manager/Reports";
 import TaskBoardScreen from "../screens/Manager/TaskBoardScreen";
+import TeamManagementScreen from "../screens/Manager/TeamManagementScreen";
 import TeamLeadHomeScreen from "../screens/teamlead/TeamLeadHomeScreen";
 
 // Admin Screens
@@ -24,6 +27,7 @@ import ManageTeamsScreen from "../screens/Admin/ManageTeamsScreen";
 import ProjectManagementScreen from "../screens/Admin/ProjectManagementScreen";
 import RoleManagementScreen from "../screens/Admin/RoleManagementScreen";
 import UserManagementScreen from "../screens/Admin/UserManagementScreen";
+
 
 const Stack = createNativeStackNavigator();
 
@@ -66,21 +70,19 @@ export default function AppNavigator({ userRole }) {
           headerBackVisible: false,
         }}
       />
-      <Stack.Screen
-        name="AddTask"
-        component={AddTaskScreen}
-        options={{ title: "Add New Task" }}
-      />
+      <Stack.Screen name="AddTask" component={AddTaskScreen} options={{}} />
 
       {/* Manager Screens */}
       <Stack.Screen
         name="ManagerHome"
         component={ManagerHomeScreen}
         options={{
-          title: "Manager Dashboard",
+          title: "  Manager Dashboard ",
           headerBackVisible: false,
         }}
       />
+      <Stack.Screen name="Reports" component={Reports} />
+      <Stack.Screen name="TeamList" component={TeamManagementScreen} />
 
       {/* Team Lead Screens */}
       <Stack.Screen
@@ -91,7 +93,11 @@ export default function AppNavigator({ userRole }) {
           headerBackVisible: false,
         }}
       />
-
+      <Stack.Screen
+        name="ProjectDetails"
+        component={ProjectDetailsScreen}
+        options={{ headerShown: false }}
+      />
       {/* Admin Screens */}
       <Stack.Screen
         name="AdminHome"
@@ -133,6 +139,8 @@ export default function AppNavigator({ userRole }) {
       />
       <Stack.Screen
         name="Analytics"
+
+        
         component={AnalyticsScreen}
         options={{ title: "Analytics" }}
       />

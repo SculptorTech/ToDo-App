@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Voice from "@react-native-voice/voice";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Audio } from "expo-av";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -23,9 +23,10 @@ import { getRequest, postRequest } from "../../services/apiService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export default function AddTaskScreen({ route }) {
+export default function AddTaskScreen() {
   const navigation = useNavigation();
-  const { user } = route.params || {};
+  const route = useRoute();
+  const { user, projectId, projectName } = route.params || {};
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -41,14 +42,8 @@ export default function AddTaskScreen({ route }) {
   const [pickerMode, setPickerMode] = useState("date");
   const [showFilterOptions, setShowFilterOptions] = useState(false);
 
-  // Project selection states - ADD THESE
-  const [projects, setProjects] = useState([]);
+  // Project selection states - AUTO SELECTED FROM NAVIGATION
   const [selectedProject, setSelectedProject] = useState(null);
-  const [showProjectModal, setShowProjectModal] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
-  const [filteredProjects, setFilteredProjects] = useState([]);
-  const [loadingProjects, setLoadingProjects] = useState(false);
-  const [projectError, setProjectError] = useState(null);
 
   // Employee assignment states
   const [assignedTo, setAssignedTo] = useState(null);
@@ -83,31 +78,37 @@ export default function AddTaskScreen({ route }) {
   const recordingInterval = useRef(null);
   const isMounted = useRef(true);
 
-  // Load projects from API - ADD THIS FUNCTION
-  const loadProjectsFromAPI = async () => {
+  // Set the project from navigation params
+  useEffect(() => {
+    if (projectId && projectName) {
+      console.log("📋 Setting project from navigation:", {
+        projectId,
+        projectName,
+      });
+      setSelectedProject({
+        id: projectId,
+        name: projectName,
+      });
+    } else if (projectId) {
+      // If only projectId is provided, fetch project name
+      fetchProjectDetails(projectId);
+    }
+  }, [projectId, projectName]);
+
+  const fetchProjectDetails = async (id) => {
     try {
-      setLoadingProjects(true);
-      setProjectError(null);
-
-      console.log("📡 Fetching projects from API...");
-      const response = await getRequest("/project/get-projects");
-      console.log("📡 Projects response:", response);
-
-      let projectsList = [];
-      if (response.projects) {
-        projectsList = response.projects;
-      } else if (Array.isArray(response)) {
-        projectsList = response;
-      }
-
-      console.log(`📋 Loaded ${projectsList.length} projects`);
-      setProjects(projectsList);
-      setFilteredProjects(projectsList);
+      const response = await getRequest(`/project/get-project/${id}`);
+      const projectData = response.project || response;
+      setSelectedProject({
+        id: id,
+        name: projectData.Name || projectData.name || "Project",
+      });
     } catch (error) {
-      console.error("❌ Error loading projects:", error);
-      setProjectError(error.message || "Failed to load projects");
-    } finally {
-      setLoadingProjects(false);
+      console.error("Error fetching project details:", error);
+      setSelectedProject({
+        id: id,
+        name: "Project",
+      });
     }
   };
 
@@ -135,21 +136,21 @@ export default function AddTaskScreen({ route }) {
 
       console.log(`📋 Total users fetched: ${usersList.length}`);
 
-      // Filter out managers and keep only employees
+      // Filter out managers and keep only developers
       const filteredUsers = usersList.filter(
         (u) =>
           u.UserID !== user?.UserID &&
           (u.RoleName === "Developer" ||
             u.roleName === "Developer" ||
-            u.Role === "Employee" ||
-            u.role === "Employee"),
+            u.Role === "Developer" ||
+            u.role === "Developer"),
       );
 
       // Transform API data
       const transformedEmployees = filteredUsers.map((u) => ({
         id: u.UserID || u.id || u.userId,
         name: u.FullName || u.fullName || u.name || "Unknown",
-        roleName: u.Role || u.role || u.roleName || "Employee",
+        roleName: u.Role || u.role || u.roleName || "Developer",
         email: u.Email || u.email || "",
         department: u.Department || u.department || "General",
         avatar: (u.FullName || u.fullName || u.name || "U")
@@ -173,31 +174,8 @@ export default function AddTaskScreen({ route }) {
 
   // Load data on mount
   useEffect(() => {
-    loadProjectsFromAPI();
     loadEmployeesFromAPI();
   }, []);
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
-      loadProjectsFromAPI();
-      loadEmployeesFromAPI();
-    });
-    return unsubscribe;
-  }, [navigation]);
-
-  // Filter projects based on search
-  useEffect(() => {
-    if (projectSearch.trim()) {
-      const filtered = projects.filter((p) =>
-        (p.Name || p.name || "")
-          .toLowerCase()
-          .includes(projectSearch.toLowerCase()),
-      );
-      setFilteredProjects(filtered);
-    } else {
-      setFilteredProjects(projects);
-    }
-  }, [projectSearch, projects]);
 
   // Filter employees based on search
   useEffect(() => {
@@ -416,25 +394,13 @@ export default function AddTaskScreen({ route }) {
     }
   };
 
-  // Project selection function - ADD THIS
-  const selectProject = (project) => {
-    console.log("Selected project:", project);
-
-    setSelectedProject({
-      id: project._id || project.ProjectId || project.id,
-      name: project.Name || project.name,
-    });
-    setShowProjectModal(false);
-    setProjectSearch("");
-  };
-
   const selectEmployee = (employee) => {
     console.log("Selected employee:", employee);
 
     setAssignedTo({
       id: employee.id.toString(),
       name: employee.name,
-      role: employee.roleName || "Employee",
+      role: employee.roleName || "Developer",
       avatar: employee.avatar,
       department: employee.department || "",
     });
@@ -445,10 +411,6 @@ export default function AddTaskScreen({ route }) {
 
   const clearAssignedEmployee = () => {
     setAssignedTo(null);
-  };
-
-  const clearSelectedProject = () => {
-    setSelectedProject(null);
   };
 
   const addTask = async () => {
@@ -463,7 +425,7 @@ export default function AddTaskScreen({ route }) {
     }
 
     if (!assignedTo) {
-      Alert.alert("Error", "Please assign this task to an employee");
+      Alert.alert("Error", "Please assign this task to a developer");
       return;
     }
 
@@ -500,9 +462,33 @@ export default function AddTaskScreen({ route }) {
       setShowDescriptionModal(false);
       setShowFilterOptions(false);
       setShowEmployeeModal(false);
-      setShowProjectModal(false);
 
-      // Prepare task data for API - matching your controller
+      // Get manager info from the user object passed from navigation
+      const managerId = user?.UserID || user?.id;
+      const managerName = user?.FullName || user?.fullName || user?.name;
+
+      // Get assigned developer info
+      const assignedDeveloperId = assignedTo?.id;
+      const assignedDeveloperName = assignedTo?.name;
+      const assignedDeveloperRole = assignedTo?.role || "Developer";
+
+      // Validate required fields
+      if (!managerId || !managerName) {
+        Alert.alert(
+          "Error",
+          "Manager information is missing. Please log in again.",
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!assignedDeveloperId || !assignedDeveloperName) {
+        Alert.alert("Error", "Please assign the task to a developer");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Prepare task data for API - matching the backend schema exactly
       const taskData = {
         title: title.trim(),
         description: description.trim() || "",
@@ -510,21 +496,39 @@ export default function AddTaskScreen({ route }) {
         dueDate: date.toISOString(),
         projectId: selectedProject.id.toString(),
         projectName: selectedProject.name,
-        assignedTo: parseInt(assignedTo.id), // Send as number
-        assignedToName: assignedTo.name,
-        assignedToRole: assignedTo.role || "Employee",
-        createdBy: parseInt(user?.UserID || user?.id), // Send as number
-        createdByName: user?.FullName || user?.name || "Manager",
+        assignedTo: parseInt(assignedDeveloperId),
+        assignedToName: assignedDeveloperName,
+        assignedToRole: assignedDeveloperRole,
+        createdBy: parseInt(managerId),
+        createdByName: managerName,
+        status: "pending",
         voiceNote: recognizedText || null,
         recordings: recordings.map((r) => ({
           uri: r.uri,
           duration: r.duration,
           timestamp: r.timestamp,
         })),
-        status: "pending",
       };
 
-      console.log("📤 Sending task data:", JSON.stringify(taskData, null, 2));
+      console.log(
+        "📤 Sending task data to backend:",
+        JSON.stringify(taskData, null, 2),
+      );
+      console.log("👤 Manager (Creator):", managerName, "(ID:", managerId, ")");
+      console.log(
+        "👨‍💻 Assigned Developer:",
+        assignedDeveloperName,
+        "(ID:",
+        assignedDeveloperId,
+        ")",
+      );
+      console.log(
+        "📁 Project:",
+        selectedProject.name,
+        "(ID:",
+        selectedProject.id,
+        ")",
+      );
 
       const response = await postRequest("/task/create-task", taskData);
       console.log("✅ Task created successfully:", response);
@@ -638,18 +642,57 @@ export default function AddTaskScreen({ route }) {
     loadEmployeesFromAPI();
   };
 
-  const retryLoadProjects = () => {
-    loadProjectsFromAPI();
+  const getRandomColor = (seed) => {
+    const colors = [
+      "#4CAF50",
+      "#2196F3",
+      "#9C27B0",
+      "#FF9800",
+      "#E91E63",
+      "#00BCD4",
+      "#FF5722",
+      "#3F51B5",
+      "#8BC34A",
+      "#FFC107",
+    ];
+    const index = (seed?.toString()?.length || 0) % colors.length;
+    return colors[index];
+  };
+
+  const handleCopyDescription = () => {
+    if (description?.trim()) {
+      Alert.alert("Copied", "Description copied to clipboard");
+    }
+  };
+
+  const handleClearDescription = () => {
+    Alert.alert(
+      "Clear Description",
+      "Are you sure you want to clear the description?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          onPress: () => setDescription(""),
+          style: "destructive",
+        },
+      ],
+    );
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Header with Project Name */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleCancel} style={styles.closeButton}>
           <Ionicons name="arrow-back" size={24} color="#1a1a1a" />
         </TouchableOpacity>
-        <Text style={styles.title}>Create Task</Text>
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.headerTitle}>Create Task</Text>
+          {selectedProject?.name && (
+            <Text style={styles.projectNameText}>{selectedProject.name}</Text>
+          )}
+        </View>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -678,41 +721,22 @@ export default function AddTaskScreen({ route }) {
           />
         </View>
 
-        {/* Project Selection Section - NEW */}
+        {/* Project Section - Auto-filled from navigation */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Project *</Text>
-            {selectedProject && (
-              <TouchableOpacity
-                style={styles.clearButton}
-                onPress={clearSelectedProject}
-              >
-                <Ionicons name="close-circle" size={20} color="#FF3B30" />
-              </TouchableOpacity>
-            )}
           </View>
-          <TouchableOpacity
-            style={styles.assignButton}
-            onPress={() => setShowProjectModal(true)}
-            activeOpacity={0.7}
-          >
-            {selectedProject ? (
-              <View style={styles.selectedItem}>
-                <Ionicons name="folder-outline" size={20} color="#007AFF" />
-                <Text style={styles.selectedItemText}>
-                  {selectedProject.name}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#666" />
-              </View>
-            ) : (
-              <View style={styles.assignPlaceholder}>
-                <Ionicons name="folder-outline" size={20} color="#007AFF" />
-                <Text style={styles.assignPlaceholderText}>
-                  Tap to select a project
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <View style={styles.projectInfoCard}>
+            <Ionicons name="folder-outline" size={24} color="#007AFF" />
+            <View style={styles.projectInfoDetails}>
+              <Text style={styles.projectInfoName}>
+                {selectedProject?.name || "Loading..."}
+              </Text>
+              <Text style={styles.projectInfoId}>
+                ID: {selectedProject?.id || projectId}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Assign To Section */}
@@ -755,7 +779,7 @@ export default function AddTaskScreen({ route }) {
               <View style={styles.assignPlaceholder}>
                 <Ionicons name="person-add-outline" size={20} color="#007AFF" />
                 <Text style={styles.assignPlaceholderText}>
-                  Tap to assign to an employee
+                  Tap to assign to a developer
                 </Text>
               </View>
             )}
@@ -974,139 +998,6 @@ export default function AddTaskScreen({ route }) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Project Selection Modal - NEW */}
-      <Modal
-        visible={showProjectModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowProjectModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.employeeModalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Project</Text>
-              <TouchableOpacity onPress={() => setShowProjectModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Search Input */}
-            <View style={styles.searchContainer}>
-              <Ionicons
-                name="search-outline"
-                size={20}
-                color="#999"
-                style={styles.searchIcon}
-              />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search projects..."
-                value={projectSearch}
-                onChangeText={setProjectSearch}
-                placeholderTextColor="#999"
-              />
-              {projectSearch ? (
-                <TouchableOpacity onPress={() => setProjectSearch("")}>
-                  <Ionicons name="close-circle" size={20} color="#999" />
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
-            {/* Error State */}
-            {projectError && (
-              <View style={styles.errorContainer}>
-                <Ionicons name="warning-outline" size={40} color="#FF3B30" />
-                <Text style={styles.errorText}>{projectError}</Text>
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={retryLoadProjects}
-                >
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Loading Indicator */}
-            {loadingProjects && !projectError ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4CAF50" />
-                <Text style={styles.loadingText}>Loading projects...</Text>
-              </View>
-            ) : (
-              !projectError && (
-                <FlatList
-                  data={filteredProjects}
-                  keyExtractor={(item) =>
-                    (item._id || item.ProjectId || item.id)?.toString()
-                  }
-                  style={styles.employeesList}
-                  showsVerticalScrollIndicator={false}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.employeeItem}
-                      onPress={() => selectProject(item)}
-                    >
-                      <View
-                        style={[
-                          styles.projectIconContainer,
-                          { backgroundColor: getRandomColor(item._id) },
-                        ]}
-                      >
-                        <Ionicons name="folder" size={24} color="#fff" />
-                      </View>
-                      <View style={styles.employeeItemInfo}>
-                        <Text style={styles.employeeItemName}>
-                          {item.Name || item.name}
-                        </Text>
-                        <Text style={styles.employeeItemRole} numberOfLines={1}>
-                          {item.Description || "No description"}
-                        </Text>
-                      </View>
-                      {selectedProject?.id ===
-                        (item._id || item.ProjectId || item.id) && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={24}
-                          color="#4CAF50"
-                        />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  ListEmptyComponent={
-                    !loadingProjects && !projectError ? (
-                      <View style={styles.emptyList}>
-                        <Ionicons
-                          name="folder-open-outline"
-                          size={50}
-                          color="#ccc"
-                        />
-                        <Text style={styles.emptyListText}>
-                          No projects found
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.refreshButton}
-                          onPress={loadProjectsFromAPI}
-                        >
-                          <Ionicons name="refresh" size={20} color="#fff" />
-                          <Text style={styles.refreshButtonText}>Refresh</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : null
-                  }
-                />
-              )
-            )}
-
-            <TouchableOpacity
-              style={styles.closeModalButton}
-              onPress={() => setShowProjectModal(false)}
-            >
-              <Text style={styles.closeModalButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* Employee Selection Modal */}
       <Modal
         visible={showEmployeeModal}
@@ -1117,7 +1008,7 @@ export default function AddTaskScreen({ route }) {
         <View style={styles.modalOverlay}>
           <View style={styles.employeeModalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Employee</Text>
+              <Text style={styles.modalTitle}>Select Developer</Text>
               <TouchableOpacity onPress={() => setShowEmployeeModal(false)}>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
@@ -1163,7 +1054,7 @@ export default function AddTaskScreen({ route }) {
             {loadingEmployees && !employeeError ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4CAF50" />
-                <Text style={styles.loadingText}>Loading employees...</Text>
+                <Text style={styles.loadingText}>Loading developers...</Text>
               </View>
             ) : (
               !employeeError && (
@@ -1219,7 +1110,7 @@ export default function AddTaskScreen({ route }) {
                           color="#ccc"
                         />
                         <Text style={styles.emptyListText}>
-                          No employees found
+                          No developers found
                         </Text>
                         <TouchableOpacity
                           style={styles.refreshButton}
@@ -1266,7 +1157,7 @@ export default function AddTaskScreen({ route }) {
           ) : (
             <>
               <Ionicons name="add-circle" size={20} color="#fff" />
-              <Text style={styles.addButtonText}>Add Task</Text>
+              <Text style={styles.addButtonText}>Create Task</Text>
             </>
           )}
         </TouchableOpacity>
@@ -1508,68 +1399,6 @@ export default function AddTaskScreen({ route }) {
   );
 }
 
-// Helper function to generate random colors for avatars
-const getRandomColor = (seed) => {
-  const colors = [
-    "#4CAF50",
-    "#2196F3",
-    "#9C27B0",
-    "#FF9800",
-    "#E91E63",
-    "#00BCD4",
-    "#FF5722",
-    "#3F51B5",
-    "#8BC34A",
-    "#FFC107",
-  ];
-  const index = (seed?.toString()?.length || 0) % colors.length;
-  return colors[index];
-};
-
-const handleCopyDescription = () => {
-  if (description?.trim()) {
-    Alert.alert("Copied", "Description copied to clipboard");
-  }
-};
-
-const handleClearDescription = () => {
-  Alert.alert(
-    "Clear Description",
-    "Are you sure you want to clear the description?",
-    [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Clear",
-        onPress: () => setDescription(""),
-        style: "destructive",
-      },
-    ],
-  );
-};
-
-// Add these new styles
-const additionalStyles = {
-  selectedItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  selectedItemText: {
-    flex: 1,
-    fontSize: 16,
-    color: "#1a1a1a",
-  },
-  projectIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-};
-
-// Merge styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1587,13 +1416,19 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: 8,
   },
-  title: {
+  headerTextContainer: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#1a1a1a",
-    flex: 1,
-    textAlign: "center",
-    marginRight: 40,
+  },
+  projectNameText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
   },
   headerSpacer: {
     width: 40,
@@ -1636,6 +1471,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#fff",
     color: "#1a1a1a",
+  },
+  projectInfoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+  projectInfoDetails: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  projectInfoName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+  projectInfoId: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
   },
   assignButton: {
     borderWidth: 1,
@@ -1699,6 +1557,17 @@ const styles = StyleSheet.create({
     width: "90%",
     maxHeight: "80%",
     padding: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
   searchContainer: {
     flexDirection: "row",
@@ -2040,20 +1909,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e9ecef",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
-  },
   modalCloseButton: {
     padding: 8,
   },
@@ -2291,6 +2146,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Add the new styles
-  ...additionalStyles,
 });
