@@ -1,14 +1,17 @@
 // src/screens/LoginScreen.js
 import { useNavigation } from "@react-navigation/native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -30,6 +33,7 @@ export default function LoginScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const buttonScale = useRef(new Animated.Value(1)).current;
+  const cardAnim = useRef(new Animated.Value(0)).current;
 
   const navigation = useNavigation();
 
@@ -44,6 +48,11 @@ export default function LoginScreen() {
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardAnim, {
+        toValue: 1,
+        duration: 1000,
         useNativeDriver: true,
       }),
     ]).start();
@@ -180,116 +189,198 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.container}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+    <>
+      <StatusBar barStyle="light-content" backgroundColor="#1E3A5F" />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.container}
       >
-        <Animated.View
-          style={[
-            styles.content,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
+        <ImageBackground
+          source={{
+            uri: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200",
+          }}
+          style={styles.backgroundImage}
+          blurRadius={5}
         >
-          {/* Header */}
-          <View style={styles.headerContainer}>
-            <Text style={styles.title}>TaskFlow</Text>
-            <View style={styles.divider} />
-            <Text style={styles.subtitle}>Role-Based Task Management</Text>
-          </View>
-
-          {/* Welcome Message */}
-          <View style={styles.welcomeContainer}>
-            <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.welcomeSubtext}>
-              Sign in to continue to your dashboard
-            </Text>
-          </View>
-
-          {/* Email Input */}
-          <View style={styles.inputWrapper}>
-            <Text style={styles.labelText}>Email</Text>
-            <TextInput
-              placeholder="Enter your email"
-              placeholderTextColor="#9ca3af"
-              style={[styles.input, emailError && styles.inputError]}
-              value={email}
-              onChangeText={handleEmailChange}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-            />
-            {emailError ? (
-              <Text style={styles.errorText}>{emailError}</Text>
-            ) : null}
-          </View>
-
-          {/* Password Input */}
-          <View style={styles.inputWrapper}>
-            <Text style={styles.labelText}>Password</Text>
-            <TextInput
-              placeholder="Enter your password"
-              placeholderTextColor="#9ca3af"
-              style={[styles.input, passwordError && styles.inputError]}
-              secureTextEntry
-              value={password}
-              onChangeText={handlePasswordChange}
-              editable={!loading}
-            />
-            {passwordError ? (
-              <Text style={styles.errorText}>{passwordError}</Text>
-            ) : null}
-          </View>
-
-          {/* Forgot Password Link */}
-          <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          {/* Login Button */}
-          <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Animated.View
+              style={[
+                styles.content,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
             >
-              {loading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.buttonText}>Login</Text>
-              )}
-            </TouchableOpacity>
-          </Animated.View>
+              {/* Office Header Section */}
+              <View style={styles.headerContainer}>
+                <View style={styles.buildingIcon}>
+                  <Text style={styles.buildingIconText}>🏢</Text>
+                </View>
+                <Text style={styles.companyName}>TaskFlow</Text>
+                <View style={styles.divider} />
+                <Text style={styles.subtitle}>Corporate Task Management</Text>
+              </View>
 
-          {/* Sign Up Link */}
-          <View style={styles.signUpContainer}>
-            <Text style={styles.signUpText}>Don't have an account? </Text>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("Register")}
-              disabled={loading}
-            >
-              <Text style={styles.signUpLink}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+              {/* Login Card - Transparent */}
+              <Animated.View
+                style={[
+                  styles.loginCard,
+                  {
+                    transform: [
+                      {
+                        scale: cardAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.95, 1],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                {/* Welcome Section */}
+                <View style={styles.welcomeContainer}>
+                  <Text style={styles.welcomeText}>Welcome Back</Text>
+                  <Text style={styles.welcomeSubtext}>
+                    Please enter your corporate credentials
+                  </Text>
+                </View>
+
+                {/* Email Input */}
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.labelText}>Official Email</Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      emailError && styles.inputContainerError,
+                    ]}
+                  >
+                    <Text style={styles.inputIcon}>📧</Text>
+                    <TextInput
+                      placeholder="employee@taskflow.com"
+                      placeholderTextColor="rgba(255,255,255,0.5)"
+                      style={styles.input}
+                      value={email}
+                      onChangeText={handleEmailChange}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!loading}
+                    />
+                  </View>
+                  {emailError ? (
+                    <Text style={styles.errorText}>{emailError}</Text>
+                  ) : null}
+                </View>
+
+                {/* Password Input */}
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.labelText}>Password</Text>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      passwordError && styles.inputContainerError,
+                    ]}
+                  >
+                    <Text style={styles.inputIcon}>🔒</Text>
+                    <TextInput
+                      placeholder="••••••••"
+                      placeholderTextColor="rgba(255,255,255,0.5)"
+                      style={styles.input}
+                      secureTextEntry
+                      value={password}
+                      onChangeText={handlePasswordChange}
+                      editable={!loading}
+                    />
+                  </View>
+                  {passwordError ? (
+                    <Text style={styles.errorText}>{passwordError}</Text>
+                  ) : null}
+                </View>
+
+                {/* Forgot Password Link */}
+                <TouchableOpacity style={styles.forgotPassword}>
+                  <Text style={styles.forgotPasswordText}>
+                    Forgot Password?
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Login Button */}
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    style={[styles.button, loading && styles.buttonDisabled]}
+                    onPress={handleLogin}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={["#2563EB", "#1E40AF"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.gradientButton}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#ffffff" />
+                      ) : (
+                        <>
+                          <Text style={styles.buttonIcon}>→</Text>
+                          <Text style={styles.buttonText}>
+                            Access Dashboard
+                          </Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+
+                {/* Divider */}
+                <View style={styles.dividerLine}>
+                  <View style={styles.line} />
+                  <Text style={styles.dividerText}>New to TaskFlow?</Text>
+                  <View style={styles.line} />
+                </View>
+
+                {/* Sign Up Link */}
+                <TouchableOpacity
+                  style={styles.signUpButton}
+                  onPress={() => navigation.navigate("Register")}
+                  disabled={loading}
+                >
+                  <Text style={styles.signUpText}>
+                    Create Corporate Account
+                  </Text>
+                  <Text style={styles.signUpArrow}>→</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Footer */}
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>
+                  © 2024 TaskFlow Enterprise
+                </Text>
+                <Text style={styles.footerSubtext}>
+                  Secure Corporate Access
+                </Text>
+              </View>
+            </Animated.View>
+          </ScrollView>
+        </ImageBackground>
+      </KeyboardAvoidingView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
+  },
+  backgroundImage: {
+    flex: 1,
+    resizeMode: "cover",
   },
   scrollContainer: {
     flexGrow: 1,
@@ -297,71 +388,117 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === "ios" ? 60 : 40,
-    paddingBottom: 30,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 40 : 20,
+    paddingBottom: 20,
   },
   headerContainer: {
-    marginBottom: 48,
     alignItems: "center",
+    marginBottom: 30,
   },
-  title: {
-    fontSize: 42,
-    fontWeight: "700",
-    color: "#111827",
+  buildingIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  buildingIconText: {
+    fontSize: 40,
+  },
+  companyName: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#FFFFFF",
     letterSpacing: -0.5,
     marginBottom: 12,
+    textShadowColor: "rgba(0,0,0,0.2)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   divider: {
-    width: 40,
+    width: 60,
     height: 3,
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 2,
     marginBottom: 12,
+    opacity: 0.8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#6b7280",
-    fontWeight: "400",
+    color: "#FFFFFF",
+    fontWeight: "500",
+    letterSpacing: 0.5,
+    opacity: 0.9,
+  },
+  loginCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 24,
+    padding: 24,
+    backdropFilter: "blur(10px)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
   welcomeContainer: {
-    marginBottom: 40,
+    marginBottom: 32,
   },
   welcomeText: {
-    fontSize: 28,
-    fontWeight: "600",
-    color: "#111827",
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#FFFFFF",
     marginBottom: 8,
   },
   welcomeSubtext: {
-    fontSize: 15,
-    color: "#6b7280",
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
     lineHeight: 20,
   },
   inputWrapper: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   labelText: {
     fontSize: 14,
-    fontWeight: "500",
-    color: "#374151",
+    fontWeight: "600",
+    color: "#FFFFFF",
     marginBottom: 8,
+    opacity: 0.9,
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 52,
+  },
+  inputContainerError: {
+    borderColor: "#EF4444",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+  },
+  inputIcon: {
+    fontSize: 18,
+    marginRight: 12,
+    opacity: 0.9,
   },
   input: {
-    backgroundColor: "#f9fafb",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    padding: 14,
-    borderRadius: 8,
+    flex: 1,
     fontSize: 16,
-    color: "#111827",
-  },
-  inputError: {
-    borderColor: "#ef4444",
-    backgroundColor: "#fef2f2",
+    color: "#FFFFFF",
+    paddingVertical: 0,
   },
   errorText: {
-    color: "#ef4444",
+    color: "#EF4444",
     fontSize: 12,
     fontWeight: "500",
     marginTop: 6,
@@ -369,46 +506,98 @@ const styles = StyleSheet.create({
   },
   forgotPassword: {
     alignSelf: "flex-end",
-    marginBottom: 32,
+    marginBottom: 24,
   },
   forgotPasswordText: {
-    color: "#3b82f6",
+    color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
+    opacity: 0.9,
   },
   button: {
-    backgroundColor: "#3b82f6",
-    padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
+    overflow: "hidden",
     marginBottom: 24,
-    shadowColor: "#3b82f6",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  buttonDisabled: {
-    backgroundColor: "#9ca3af",
-    opacity: 0.7,
+  gradientButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 8,
+  },
+  buttonIcon: {
+    fontSize: 18,
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
   buttonText: {
-    color: "#ffffff",
-    fontWeight: "600",
+    color: "#FFFFFF",
+    fontWeight: "700",
     fontSize: 16,
-    textAlign: "center",
+    letterSpacing: 0.5,
   },
-  signUpContainer: {
+  buttonDisabled: {
+    opacity: 0.7,
+    shadowOpacity: 0,
+  },
+  dividerLine: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
+    marginBottom: 20,
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  dividerText: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 12,
+    marginHorizontal: 12,
+  },
+  signUpButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
   signUpText: {
-    color: "#6b7280",
-    fontSize: 14,
-  },
-  signUpLink: {
-    color: "#3b82f6",
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
+    opacity: 0.9,
+  },
+  signUpArrow: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontWeight: "600",
+    opacity: 0.9,
+  },
+  footer: {
+    alignItems: "center",
+    marginTop: 20,
+  },
+  footerText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "500",
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  footerSubtext: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    opacity: 0.5,
   },
 });

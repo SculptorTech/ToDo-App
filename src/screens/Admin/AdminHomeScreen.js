@@ -291,12 +291,7 @@ export default function AdminHomeScreen({ navigation, route }) {
                     style={styles.drawerMenuItem}
                     onPress={() => navigateToScreen(item.screen)}
                   >
-                    <View
-                      style={[
-                        styles.drawerMenuIcon,
-                        { backgroundColor: item.iconBg },
-                      ]}
-                    >
+                    <View style={[styles.drawerMenuIcon]}>
                       <Text style={styles.drawerMenuIconText}>{item.icon}</Text>
                     </View>
                     <Text style={styles.drawerMenuText}>{item.title}</Text>
@@ -306,7 +301,7 @@ export default function AdminHomeScreen({ navigation, route }) {
 
               {/* Drawer Logout Button */}
               <TouchableOpacity
-                style={styles.logoutButton}
+                style={styles.drawerLogoutButton}
                 onPress={() => navigation.replace("Login")}
               >
                 <View style={styles.drawerLogoutIcon}>
@@ -328,7 +323,7 @@ export default function AdminHomeScreen({ navigation, route }) {
           <View style={styles.headerCenter}>
             <Text style={styles.greeting}>Welcome back,</Text>
             <Text style={styles.userName}>{user?.name || "Admin"}</Text>
-            <Text style={styles.userRole}>Administrator</Text>
+            {/* <Text style={styles.userRole}>Administrator</Text> */}
           </View>
           <View style={styles.headerRight} />
         </View>
@@ -512,12 +507,12 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   drawerContainer: {
-    width: 300,
+    width: 280,
     height: "100%",
     backgroundColor: "#fff",
     shadowColor: "#000",
     shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
   },
@@ -534,7 +529,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#FF9800",
+    backgroundColor: "#e3f2fd",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -562,7 +557,7 @@ const styles = StyleSheet.create({
   drawerMenuItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f3f5",
@@ -579,16 +574,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   drawerMenuText: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#1a1a1a",
-    fontWeight: "400",
+    fontWeight: "500",
   },
   drawerLogoutButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 20,
+    paddingVertical: 16,
     paddingHorizontal: 20,
-    backgroundColor: "#fef2f2",
+    backgroundColor: "#f8f9fa",
     borderTopWidth: 1,
     borderTopColor: "#e9ecef",
     marginTop: 10,
@@ -597,16 +592,21 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#fee2e2",
+    backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   drawerLogoutIconText: {
     fontSize: 20,
   },
   drawerLogoutText: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#dc2626",
     fontWeight: "500",
   },

@@ -28,7 +28,6 @@ import ProjectManagementScreen from "../screens/Admin/ProjectManagementScreen";
 import RoleManagementScreen from "../screens/Admin/RoleManagementScreen";
 import UserManagementScreen from "../screens/Admin/UserManagementScreen";
 
-
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigator({ userRole }) {
@@ -58,7 +57,7 @@ export default function AppNavigator({ userRole }) {
       <Stack.Screen
         name="Register"
         component={RegisterScreen}
-        options={{ title: "Create Account" }}
+        options={{ headerShown: false }}
       />
 
       {/* Regular User Screens (Viewer, Developer) */}
@@ -102,9 +101,7 @@ export default function AppNavigator({ userRole }) {
       <Stack.Screen
         name="AdminHome"
         component={AdminHomeScreen}
-        options={{
-          title: "Admin Dashboard",
-          headerBackVisible: false,
+       options={{ headerShown: false 
         }}
       />
       <Stack.Screen
@@ -139,8 +136,6 @@ export default function AppNavigator({ userRole }) {
       />
       <Stack.Screen
         name="Analytics"
-
-        
         component={AnalyticsScreen}
         options={{ title: "Analytics" }}
       />

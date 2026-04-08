@@ -1,19 +1,22 @@
 // src/screens/RoleBasedSignupScreen.js
 import { useNavigation } from "@react-navigation/native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { postRequest } from "../services/apiService"; // Import the API method
+import { postRequest } from "../services/apiService";
 
 // Default role set to Developer
 const DEFAULT_ROLE = {
@@ -104,19 +107,17 @@ export default function RoleBasedSignupScreen() {
         Role: DEFAULT_ROLE.id
       });
 
-      // Using the imported postRequest method
       const response = await postRequest("/user/create-user", {
         FullName: formData.fullName,
         MobileNumber: formData.mobileNumber,
         EmailID: formData.email,
         Password: formData.password,
-        Role: DEFAULT_ROLE.id, // Always use Developer role
-        Department: formData.department || "", // Send empty string if not provided
+        Role: DEFAULT_ROLE.id,
+        Department: formData.department || "",
       });
 
       console.log("Signup response:", response);
 
-      // Check for success - adjust based on your API response structure
       if (response.success || response.message || response.user) {
         Alert.alert(
           "Success",
@@ -129,7 +130,6 @@ export default function RoleBasedSignupScreen() {
     } catch (error) {
       console.error("Signup error:", error);
 
-      // Error handling with the API service response structure
       if (error.response) {
         const status = error.response.status;
         const errorMessage = 
@@ -160,217 +160,305 @@ export default function RoleBasedSignupScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.content}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Sign up as a Developer</Text>
+    <>
+      <StatusBar barStyle="light-content" backgroundColor="#1E3A5F" />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <ImageBackground
+          source={{
+            uri: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200",
+          }}
+          style={styles.backgroundImage}
+          blurRadius={5}
+        >
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.content}>
+              {/* Header Section */}
+              <View style={styles.headerContainer}>
+                <View style={styles.buildingIcon}>
+                  <Text style={styles.buildingIconText}>📝</Text>
+                </View>
+                <Text style={styles.title}>Create Account</Text>
+                <View style={styles.divider} />
+                <Text style={styles.subtitle}>Join TaskFlow Enterprise</Text>
+              </View>
 
-          {/* Role Info Banner */}
-          <View
-            style={[
-              styles.roleBanner,
-              { backgroundColor: DEFAULT_ROLE.color + "20" },
-            ]}
-          >
-            <View
-              style={[
-                styles.roleIconContainer,
-                { backgroundColor: DEFAULT_ROLE.color },
-              ]}
-            >
-              <Text style={styles.roleIcon}>{DEFAULT_ROLE.icon}</Text>
-            </View>
-            <View style={styles.roleBannerText}>
-              <Text style={styles.roleBannerTitle}>
-                {DEFAULT_ROLE.name} Account
+              {/* Role Info Banner */}
+              <View style={[styles.roleBanner, { backgroundColor: "rgba(40, 167, 69, 0.15)" }]}>
+                <View
+                  style={[
+                    styles.roleIconContainer,
+                    { backgroundColor: DEFAULT_ROLE.color },
+                  ]}
+                >
+                  <Text style={styles.roleIcon}>{DEFAULT_ROLE.icon}</Text>
+                </View>
+                <View style={styles.roleBannerText}>
+                  <Text style={styles.roleBannerTitle}>
+                    {DEFAULT_ROLE.name} Account
+                  </Text>
+                  <Text style={styles.roleBannerDesc}>
+                    {DEFAULT_ROLE.description}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Full Name */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Full Name</Text>
+                <View style={[styles.inputWrapper, errors.fullName && styles.inputWrapperError]}>
+                  <Text style={styles.inputIcon}>👤</Text>
+                  <TextInput
+                    placeholder="Enter your full name"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    value={formData.fullName}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, fullName: text })
+                    }
+                    editable={!loading}
+                  />
+                </View>
+                {errors.fullName && (
+                  <Text style={styles.errorText}>{errors.fullName}</Text>
+                )}
+              </View>
+
+              {/* Mobile Number */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Mobile Number</Text>
+                <View style={[styles.inputWrapper, errors.mobileNumber && styles.inputWrapperError]}>
+                  <Text style={styles.inputIcon}>📱</Text>
+                  <TextInput
+                    placeholder="Enter 10-digit mobile number"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    value={formData.mobileNumber}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, mobileNumber: text })
+                    }
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    editable={!loading}
+                  />
+                </View>
+                {errors.mobileNumber && (
+                  <Text style={styles.errorText}>{errors.mobileNumber}</Text>
+                )}
+              </View>
+
+              {/* Email */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Email</Text>
+                <View style={[styles.inputWrapper, errors.email && styles.inputWrapperError]}>
+                  <Text style={styles.inputIcon}>📧</Text>
+                  <TextInput
+                    placeholder="Enter your email"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    value={formData.email}
+                    onChangeText={(text) => setFormData({ ...formData, email: text })}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    editable={!loading}
+                  />
+                </View>
+                {errors.email && (
+                  <Text style={styles.errorText}>{errors.email}</Text>
+                )}
+              </View>
+
+              {/* Department (optional) */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Department (Optional)</Text>
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputIcon}>🏢</Text>
+                  <TextInput
+                    placeholder="Enter your department"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    value={formData.department}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, department: text })
+                    }
+                    editable={!loading}
+                  />
+                </View>
+              </View>
+
+              {/* Password */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Password</Text>
+                <View style={[styles.inputWrapper, errors.password && styles.inputWrapperError]}>
+                  <Text style={styles.inputIcon}>🔒</Text>
+                  <TextInput
+                    placeholder="Create a password"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    secureTextEntry
+                    value={formData.password}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, password: text })
+                    }
+                    editable={!loading}
+                  />
+                </View>
+                {errors.password && (
+                  <Text style={styles.errorText}>{errors.password}</Text>
+                )}
+              </View>
+
+              {/* Confirm Password */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Confirm Password</Text>
+                <View style={[styles.inputWrapper, errors.confirmPassword && styles.inputWrapperError]}>
+                  <Text style={styles.inputIcon}>✓</Text>
+                  <TextInput
+                    placeholder="Confirm your password"
+                    placeholderTextColor="rgba(255,255,255,0.5)"
+                    style={styles.input}
+                    secureTextEntry
+                    value={formData.confirmPassword}
+                    onChangeText={(text) =>
+                      setFormData({ ...formData, confirmPassword: text })
+                    }
+                    editable={!loading}
+                  />
+                </View>
+                {errors.confirmPassword && (
+                  <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+                )}
+              </View>
+
+              {/* Signup Button */}
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleSignup}
+                disabled={loading}
+              >
+                <LinearGradient
+                  colors={["#28a745", "#1f8b4c"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.gradientButton}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={styles.buttonIcon}>→</Text>
+                      <Text style={styles.buttonText}>Create Account</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.dividerLine}>
+                <View style={styles.line} />
+                <Text style={styles.dividerText}>Already have an account?</Text>
+                <View style={styles.line} />
+              </View>
+
+              {/* Login Link */}
+              <TouchableOpacity
+                style={styles.loginButton}
+                onPress={() => navigation.navigate("Login")}
+                disabled={loading}
+              >
+                <Text style={styles.loginButtonText}>Sign In</Text>
+                <Text style={styles.loginArrow}>→</Text>
+              </TouchableOpacity>
+
+              {/* Info Text */}
+              <Text style={styles.infoText}>
+                All new accounts are created with Developer role access
               </Text>
-              <Text style={styles.roleBannerDesc}>
-                {DEFAULT_ROLE.description}
-              </Text>
+
+              {/* Footer */}
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>© 2024 TaskFlow Enterprise</Text>
+                <Text style={styles.footerSubtext}>Secure Corporate Registration</Text>
+              </View>
             </View>
-          </View>
-
-          {/* Full Name */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              placeholder="Enter your full name"
-              placeholderTextColor="#999"
-              style={[styles.input, errors.fullName && styles.inputError]}
-              value={formData.fullName}
-              onChangeText={(text) =>
-                setFormData({ ...formData, fullName: text })
-              }
-              editable={!loading}
-            />
-            {errors.fullName && (
-              <Text style={styles.errorText}>{errors.fullName}</Text>
-            )}
-          </View>
-
-          {/* Mobile Number */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Mobile Number</Text>
-            <TextInput
-              placeholder="Enter 10-digit mobile number"
-              placeholderTextColor="#999"
-              style={[styles.input, errors.mobileNumber && styles.inputError]}
-              value={formData.mobileNumber}
-              onChangeText={(text) =>
-                setFormData({ ...formData, mobileNumber: text })
-              }
-              keyboardType="phone-pad"
-              maxLength={10}
-              editable={!loading}
-            />
-            {errors.mobileNumber && (
-              <Text style={styles.errorText}>{errors.mobileNumber}</Text>
-            )}
-          </View>
-
-          {/* Email */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              placeholder="Enter your email"
-              placeholderTextColor="#999"
-              style={[styles.input, errors.email && styles.inputError]}
-              value={formData.email}
-              onChangeText={(text) => setFormData({ ...formData, email: text })}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-            />
-            {errors.email && (
-              <Text style={styles.errorText}>{errors.email}</Text>
-            )}
-          </View>
-
-          {/* Department (optional) */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Department (Optional)</Text>
-            <TextInput
-              placeholder="Enter your department"
-              placeholderTextColor="#999"
-              style={styles.input}
-              value={formData.department}
-              onChangeText={(text) =>
-                setFormData({ ...formData, department: text })
-              }
-              editable={!loading}
-            />
-          </View>
-
-          {/* Password */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              placeholder="Create a password"
-              placeholderTextColor="#999"
-              style={[styles.input, errors.password && styles.inputError]}
-              secureTextEntry
-              value={formData.password}
-              onChangeText={(text) =>
-                setFormData({ ...formData, password: text })
-              }
-              editable={!loading}
-            />
-            {errors.password && (
-              <Text style={styles.errorText}>{errors.password}</Text>
-            )}
-          </View>
-
-          {/* Confirm Password */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Confirm Password</Text>
-            <TextInput
-              placeholder="Confirm your password"
-              placeholderTextColor="#999"
-              style={[
-                styles.input,
-                errors.confirmPassword && styles.inputError,
-              ]}
-              secureTextEntry
-              value={formData.confirmPassword}
-              onChangeText={(text) =>
-                setFormData({ ...formData, confirmPassword: text })
-              }
-              editable={!loading}
-            />
-            {errors.confirmPassword && (
-              <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-            )}
-          </View>
-
-          {/* Signup Button */}
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleSignup}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Create Account</Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Login Link */}
-          <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate("Login")} disabled={loading}>
-              <Text style={styles.loginLink}>Sign In</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Info Text */}
-          <Text style={styles.infoText}>
-            All new accounts are created with Developer role access
-          </Text>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          </ScrollView>
+        </ImageBackground>
+      </KeyboardAvoidingView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+  },
+  backgroundImage: {
+    flex: 1,
+    resizeMode: "cover",
   },
   scrollContent: {
     flexGrow: 1,
   },
   content: {
+    flex: 1,
     padding: 24,
-    paddingTop: 40,
-    paddingBottom: 40,
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingBottom: 30,
+  },
+  headerContainer: {
+    alignItems: "center",
+    marginBottom: 30,
+  },
+  buildingIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  buildingIconText: {
+    fontSize: 40,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "bold",
-    marginBottom: 8,
-    textAlign: "center",
-    color: "#1a1a1a",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+    marginBottom: 12,
+    textShadowColor: "rgba(0,0,0,0.2)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  divider: {
+    width: 60,
+    height: 3,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 2,
+    marginBottom: 12,
+    opacity: 0.8,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 20,
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "500",
+    letterSpacing: 0.5,
+    opacity: 0.9,
   },
   roleBanner: {
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#e9ecef",
+    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(40, 167, 69, 0.15)",
   },
   roleIconContainer: {
     width: 48,
@@ -390,12 +478,12 @@ const styles = StyleSheet.create({
   roleBannerTitle: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: "#FFFFFF",
     marginBottom: 2,
   },
   roleBannerDesc: {
     fontSize: 13,
-    color: "#666",
+    color: "rgba(255,255,255,0.8)",
   },
   inputContainer: {
     marginBottom: 16,
@@ -403,70 +491,136 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#333",
-    marginBottom: 6,
+    color: "#FFFFFF",
+    marginBottom: 8,
     marginLeft: 4,
+    opacity: 0.9,
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 52,
+  },
+  inputWrapperError: {
+    borderColor: "#EF4444",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+  },
+  inputIcon: {
+    fontSize: 18,
+    marginRight: 12,
+    opacity: 0.8,
   },
   input: {
-    borderWidth: 1.5,
-    borderColor: "#e0e0e0",
-    padding: 14,
-    borderRadius: 10,
+    flex: 1,
     fontSize: 16,
-    backgroundColor: "#f9f9f9",
-  },
-  inputError: {
-    borderColor: "#ff6b6b",
-    backgroundColor: "#fff5f5",
+    color: "#FFFFFF",
+    paddingVertical: 0,
   },
   errorText: {
-    color: "#ff6b6b",
+    color: "#EF4444",
     fontSize: 12,
-    marginTop: 4,
+    fontWeight: "500",
+    marginTop: 6,
     marginLeft: 4,
   },
   button: {
-    backgroundColor: "#28a745", // Developer role color
-    padding: 16,
-    borderRadius: 10,
+    borderRadius: 12,
+    overflow: "hidden",
     marginTop: 24,
     marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowColor: "#28a745",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  buttonDisabled: {
-    backgroundColor: "#666",
-    opacity: 0.7,
+  gradientButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 8,
+  },
+  buttonIcon: {
+    fontSize: 18,
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
   buttonText: {
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "600",
+    color: "#FFFFFF",
+    fontWeight: "700",
     fontSize: 16,
+    letterSpacing: 0.5,
   },
-  loginContainer: {
+  buttonDisabled: {
+    opacity: 0.7,
+    shadowOpacity: 0,
+  },
+  dividerLine: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    marginTop: 8,
+    marginBottom: 16,
   },
-  loginText: {
-    color: "#666",
-    fontSize: 14,
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
   },
-  loginLink: {
-    color: "#2196F3",
+  dividerText: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 12,
+    marginHorizontal: 12,
+  },
+  loginButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    marginBottom: 16,
+  },
+  loginButtonText: {
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
+    opacity: 0.9,
+  },
+  loginArrow: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontWeight: "600",
+    opacity: 0.9,
   },
   infoText: {
     textAlign: "center",
-    color: "#999",
+    color: "rgba(255, 255, 255, 0.6)",
     fontSize: 12,
-    marginTop: 20,
     fontStyle: "italic",
+    marginBottom: 20,
+  },
+  footer: {
+    alignItems: "center",
+    marginTop: 10,
+  },
+  footerText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "500",
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  footerSubtext: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    opacity: 0.5,
   },
 });
