@@ -1,10 +1,14 @@
 // src/screens/admin/AdminHomeScreen.js
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useCallback, useRef, useState } from "react";
 import {
   Alert,
   Animated,
+  Dimensions,
   Modal,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,6 +17,8 @@ import {
   View,
 } from "react-native";
 import { clearCurrentUser, getRequest } from "../../services/apiService";
+
+const { width } = Dimensions.get("window");
 
 export default function AdminHomeScreen({ navigation, route }) {
   const { user } = route.params || {};
@@ -26,10 +32,17 @@ export default function AdminHomeScreen({ navigation, route }) {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [slideAnim] = useState(new Animated.Value(-300));
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }).start();
     }, []),
   );
 
@@ -44,17 +57,20 @@ export default function AdminHomeScreen({ navigation, route }) {
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadDashboardData();
+    setRefreshing(false);
+  };
+
   const loadStats = async () => {
     try {
-      // Load projects
       const projectsResponse = await getRequest("/project/get-projects");
       const projects = projectsResponse.projects || projectsResponse || [];
 
-      // Load users
       const usersResponse = await getRequest("/user/getusers");
       const users = usersResponse.users || usersResponse || [];
 
-      // Load tasks (if you have tasks endpoint)
       let tasks = [];
       try {
         const tasksResponse = await getRequest("/task/get-tasks");
@@ -63,11 +79,9 @@ export default function AdminHomeScreen({ navigation, route }) {
         console.warn("Tasks not loaded:", error);
       }
 
-      // Load teams (if you have teams endpoint)
       let teams = [];
       try {
-        // const teamsResponse = await getRequest("/team/get-teams");
-        teams = teamsResponse.teams || teamsResponse || [];
+        teams = [];
       } catch (error) {
         console.warn("Teams not loaded:", error);
       }
@@ -87,7 +101,6 @@ export default function AdminHomeScreen({ navigation, route }) {
     try {
       const response = await getRequest("/project/get-projects");
 
-      // Handle different response structures
       let projects = [];
       if (response.projects) {
         projects = response.projects;
@@ -97,7 +110,6 @@ export default function AdminHomeScreen({ navigation, route }) {
         projects = [];
       }
 
-      // Map projects to the format expected by the UI
       const mappedProjects = projects.map((project) => ({
         id: project.ProjectId || project.projectId || project.id,
         name: project.Name || project.name || "Untitled Project",
@@ -111,7 +123,6 @@ export default function AdminHomeScreen({ navigation, route }) {
           project.CreatedAt || project.createdAt || new Date().toISOString(),
       }));
 
-      // Sort by creation date (newest first)
       const sorted = mappedProjects.sort(
         (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
       );
@@ -194,58 +205,73 @@ export default function AdminHomeScreen({ navigation, route }) {
     }
   };
 
-  // Drawer menu items
   const drawerMenuItems = [
     {
       id: "1",
       title: "User Management",
-      icon: "👥",
+      icon: "people-outline",
       screen: "UserManagement",
-      iconBg: "#FF9800",
     },
     {
       id: "2",
       title: "Project Creation",
-      icon: "📁",
+      icon: "folder-open-outline",
       screen: "CreateProject",
-      iconBg: "#FF9800",
     },
     {
       id: "3",
       title: "Role Management",
-      icon: "⚙️",
+      icon: "settings-outline",
       screen: "RoleManagement",
-      iconBg: "#FF9800",
     },
   ];
 
-  // Main dashboard cards
   const dashboardCards = [
     {
       id: "1",
       title: "User Management",
-      icon: "👥",
+      icon: "people-outline",
       screen: "UserManagement",
       description: "Add, edit, or remove users",
       color: "#4361ee",
+      gradient: ["#4361ee", "#3b52d4"],
     },
     {
       id: "2",
       title: "Project Creation",
-      icon: "📁",
+      icon: "folder-open-outline",
       screen: "CreateProject",
       description: "Create and manage projects",
       color: "#f72585",
+      gradient: ["#f72585", "#d91c6b"],
     },
     {
       id: "3",
       title: "Role Management",
-      icon: "⚙️",
+      icon: "settings-outline",
       screen: "RoleManagement",
       description: "Assign and manage user roles",
       color: "#4cc9f0",
+      gradient: ["#4cc9f0", "#3ba6c7"],
     },
   ];
+
+  const StatCard = ({ value, label, icon, color, gradient }) => (
+    <LinearGradient
+      colors={gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.statCard, { backgroundColor: color + "10" }]}
+    >
+      <View style={[styles.statIconWrapper, { backgroundColor: color + "20" }]}>
+        <Ionicons name={icon} size={28} color={color} />
+      </View>
+      <View>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statLabel}>{label}</Text>
+      </View>
+    </LinearGradient>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -267,9 +293,13 @@ export default function AdminHomeScreen({ navigation, route }) {
               { transform: [{ translateX: slideAnim }] },
             ]}
           >
-            <TouchableOpacity activeOpacity={1}>
-              {/* Drawer Header */}
-              <View style={styles.drawerHeader}>
+            <TouchableOpacity activeOpacity={1} style={{ flex: 1 }}>
+              <LinearGradient
+                colors={["#1E3A5F", "#152c47"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.drawerHeader}
+              >
                 <View style={styles.drawerUserIcon}>
                   <Text style={styles.drawerUserIconText}>👤</Text>
                 </View>
@@ -278,12 +308,11 @@ export default function AdminHomeScreen({ navigation, route }) {
                     Hi, {user?.name || "Company Admin"}
                   </Text>
                   <Text style={styles.drawerCompany}>
-                    {user?.company || "Admin"}
+                    {user?.company || "Administrator"}
                   </Text>
                 </View>
-              </View>
+              </LinearGradient>
 
-              {/* Drawer Menu Items */}
               <ScrollView style={styles.drawerMenu}>
                 {drawerMenuItems.map((item) => (
                   <TouchableOpacity
@@ -291,21 +320,20 @@ export default function AdminHomeScreen({ navigation, route }) {
                     style={styles.drawerMenuItem}
                     onPress={() => navigateToScreen(item.screen)}
                   >
-                    <View style={[styles.drawerMenuIcon]}>
-                      <Text style={styles.drawerMenuIconText}>{item.icon}</Text>
+                    <View style={styles.drawerMenuIcon}>
+                      <Ionicons name={item.icon} size={24} color="#1a1a1a" />
                     </View>
                     <Text style={styles.drawerMenuText}>{item.title}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
 
-              {/* Drawer Logout Button */}
               <TouchableOpacity
                 style={styles.drawerLogoutButton}
                 onPress={() => navigation.replace("Login")}
               >
                 <View style={styles.drawerLogoutIcon}>
-                  <Text style={styles.drawerLogoutIconText}>🚪</Text>
+                  <Text style={styles.drawerLogoutIconText}>⏻</Text>
                 </View>
                 <Text style={styles.drawerLogoutText}>Logout</Text>
               </TouchableOpacity>
@@ -314,182 +342,239 @@ export default function AdminHomeScreen({ navigation, route }) {
         </TouchableOpacity>
       </Modal>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
-            <Text style={styles.menuIcon}>☰</Text>
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Text style={styles.greeting}>Welcome back,</Text>
-            <Text style={styles.userName}>{user?.name || "Admin"}</Text>
-            {/* <Text style={styles.userRole}>Administrator</Text> */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <Animated.View style={{ opacity: fadeAnim }}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
+              <Ionicons name="menu-outline" size={24} color="#1a1a1a" />
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <Text style={styles.greeting}>Welcome back,</Text>
+              <Text style={styles.userName}>{user?.name || "Admin"}</Text>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleBadgeText}>Administrator</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.notificationButton}>
+              <Ionicons
+                name="notifications-outline"
+                size={22}
+                color="#6c757d"
+              />
+              <View style={styles.notificationDot} />
+            </TouchableOpacity>
           </View>
-          <View style={styles.headerRight} />
-        </View>
 
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statsRow}>
-            <View style={[styles.statCard, { backgroundColor: "#4361ee10" }]}>
-              <Text style={styles.statValue}>{stats.users}</Text>
-              <Text style={styles.statLabel}>Total Users</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: "#f7258510" }]}>
-              <Text style={styles.statValue}>{stats.projects}</Text>
-              <Text style={styles.statLabel}>Projects</Text>
-            </View>
+          {/* Stats Cards */}
+          <View style={styles.statsContainer}>
+            <StatCard
+              value={stats.users}
+              label="Total Users"
+              icon="people-outline"
+              color="#4361ee"
+              gradient={["#4361ee15", "#4361ee05"]}
+            />
+            <StatCard
+              value={stats.projects}
+              label="Projects"
+              icon="folder-open-outline"
+              color="#f72585"
+              gradient={["#f7258515", "#f7258505"]}
+            />
+            <StatCard
+              value={stats.tasks}
+              label="Tasks"
+              icon="checkbox-outline"
+              color="#4cc9f0"
+              gradient={["#4cc9f015", "#4cc9f005"]}
+            />
+            <StatCard
+              value={stats.teams}
+              label="Teams"
+              icon="people-circle-outline"
+              color="#f8961e"
+              gradient={["#f8961e15", "#f8961e05"]}
+            />
           </View>
-          <View style={styles.statsRow}>
-            <View style={[styles.statCard, { backgroundColor: "#4cc9f010" }]}>
-              <Text style={styles.statValue}>{stats.tasks}</Text>
-              <Text style={styles.statLabel}>Tasks</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: "#f8961e10" }]}>
-              <Text style={styles.statValue}>{stats.teams}</Text>
-              <Text style={styles.statLabel}>Teams</Text>
-            </View>
-          </View>
-        </View>
 
-        {/* Quick Access Cards */}
-        <View style={styles.featuresContainer}>
-          <Text style={styles.sectionTitle}>Quick Access</Text>
-          <View style={styles.featuresGrid}>
-            {dashboardCards.map((card) => (
-              <TouchableOpacity
-                key={card.id}
-                style={styles.featureCard}
-                onPress={() => navigation.navigate(card.screen, { user })}
-              >
-                <View
-                  style={[
-                    styles.featureIcon,
-                    { backgroundColor: card.color + "20" },
-                  ]}
+          {/* Quick Access Section */}
+          <View style={styles.featuresContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Quick Access</Text>
+              <Text style={styles.sectionSubtitle}>Frequently used tools</Text>
+            </View>
+            <View style={styles.featuresGrid}>
+              {dashboardCards.map((card) => (
+                <TouchableOpacity
+                  key={card.id}
+                  style={styles.featureCard}
+                  onPress={() => navigation.navigate(card.screen, { user })}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.featureIconText}>{card.icon}</Text>
-                </View>
-                <Text style={styles.featureTitle}>{card.title}</Text>
-                <Text style={styles.featureDescription}>
-                  {card.description}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Recent Projects Section */}
-        <View style={styles.projectsContainer}>
-          <Text style={styles.sectionTitle}>Recent Projects</Text>
-
-          {loading ? (
-            <View style={styles.emptyProjects}>
-              <Text style={styles.emptyText}>Loading projects...</Text>
+                  <LinearGradient
+                    colors={card.gradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.featureIcon}
+                  >
+                    <Ionicons name={card.icon} size={28} color="#fff" />
+                  </LinearGradient>
+                  <Text style={styles.featureTitle}>{card.title}</Text>
+                  <Text style={styles.featureDescription}>
+                    {card.description}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          ) : recentProjects.length > 0 ? (
-            recentProjects.map((project) => (
+          </View>
+
+          {/* Recent Projects Section */}
+          <View style={styles.projectsContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recent Projects</Text>
               <TouchableOpacity
-                key={project.id}
-                style={styles.projectCard}
                 onPress={() =>
-                  navigation.navigate("ProjectManagement", {
-                    projectId: project.id,
-                    user,
-                  })
+                  navigation.navigate("ProjectManagement", { user })
                 }
               >
-                <View style={styles.projectHeader}>
-                  <Text style={styles.projectName}>{project.name}</Text>
-                  <View
-                    style={[
-                      styles.priorityBadge,
-                      {
-                        backgroundColor:
-                          getPriorityColor(project.priority) + "20",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.priorityText,
-                        { color: getPriorityColor(project.priority) },
-                      ]}
-                    >
-                      {project.priority || "Medium"}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.projectClient}>
-                  Client: {project.client || "N/A"}
-                </Text>
-
-                <View style={styles.projectFooter}>
-                  <View style={styles.projectMeta}>
-                    <Text style={styles.metaIcon}>📅</Text>
-                    <Text style={styles.metaText}>
-                      {project.startDate
-                        ? new Date(project.startDate).toLocaleDateString()
-                        : "Start date"}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor: getStatusColor(project.status) + "20",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: getStatusColor(project.status) },
-                      ]}
-                    >
-                      {project.status
-                        ? project.status.charAt(0).toUpperCase() +
-                          project.status.slice(1)
-                        : "Planning"}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Progress Bar */}
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${project.progress || 0}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.progressText}>
-                    {project.progress || 0}%
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.emptyProjects}>
-              <Text style={styles.emptyIcon}>📁</Text>
-              <Text style={styles.emptyTitle}>No Projects Yet</Text>
-              <Text style={styles.emptyText}>
-                Create your first project to get started
-              </Text>
-              <TouchableOpacity
-                style={styles.createProjectButton}
-                onPress={() => navigation.navigate("CreateProject", { user })}
-              >
-                <Text style={styles.createProjectButtonText}>
-                  Create Project →
-                </Text>
+                <Text style={styles.seeAllText}>See All →</Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
+
+            {loading ? (
+              <View style={styles.emptyProjects}>
+                <Text style={styles.emptyText}>Loading projects...</Text>
+              </View>
+            ) : recentProjects.length > 0 ? (
+              recentProjects.slice(0, 5).map((project) => (
+                <TouchableOpacity
+                  key={project.id}
+                  style={styles.projectCard}
+                  onPress={() =>
+                    navigation.navigate("ProjectManagement", {
+                      projectId: project.id,
+                      user,
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.projectHeader}>
+                    <View style={styles.projectTitleContainer}>
+                      <View
+                        style={[
+                          styles.projectStatusDot,
+                          { backgroundColor: getStatusColor(project.status) },
+                        ]}
+                      />
+                      <Text style={styles.projectName}>{project.name}</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.priorityBadge,
+                        {
+                          backgroundColor:
+                            getPriorityColor(project.priority) + "20",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.priorityText,
+                          { color: getPriorityColor(project.priority) },
+                        ]}
+                      >
+                        {project.priority || "Medium"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.projectClientContainer}>
+                    <Ionicons
+                      name="business-outline"
+                      size={14}
+                      color="#6c757d"
+                    />
+                    <Text style={styles.projectClient}>
+                      {project.client || "N/A"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.projectFooter}>
+                    <View style={styles.projectMeta}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={14}
+                        color="#6c757d"
+                      />
+                      <Text style={styles.metaText}>
+                        {project.startDate
+                          ? new Date(project.startDate).toLocaleDateString()
+                          : "Not started"}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor:
+                            getStatusColor(project.status) + "20",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: getStatusColor(project.status) },
+                        ]}
+                      >
+                        {project.status
+                          ? project.status.charAt(0).toUpperCase() +
+                            project.status.slice(1)
+                          : "Planning"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.progressContainer}>
+                    <View style={styles.progressBar}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${project.progress || 0}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.progressText}>
+                      {project.progress || 0}%
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyProjects}>
+                <Ionicons name="folder-open-outline" size={60} color="#ccc" />
+                <Text style={styles.emptyTitle}>No Projects Yet</Text>
+                <Text style={styles.emptyText}>
+                  Create your first project to get started
+                </Text>
+                <TouchableOpacity
+                  style={styles.createProjectButton}
+                  onPress={() => navigation.navigate("CreateProject", { user })}
+                >
+                  <Text style={styles.createProjectButtonText}>
+                    Create Project →
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -500,7 +585,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
-  // Drawer Styles
   drawerOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -517,19 +601,16 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   drawerHeader: {
-    backgroundColor: "#f8f9fa",
     padding: 20,
     paddingTop: 50,
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e9ecef",
   },
   drawerUserIcon: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#e3f2fd",
+    backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -543,12 +624,12 @@ const styles = StyleSheet.create({
   drawerGreeting: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#1a1a1a",
+    color: "#fff",
     marginBottom: 4,
   },
   drawerCompany: {
     fontSize: 12,
-    color: "#6c757d",
+    color: "rgba(255,255,255,0.7)",
   },
   drawerMenu: {
     flex: 1,
@@ -570,9 +651,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 16,
   },
-  drawerMenuIconText: {
-    fontSize: 20,
-  },
   drawerMenuText: {
     fontSize: 15,
     color: "#1a1a1a",
@@ -592,25 +670,15 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  drawerLogoutIconText: {
-    fontSize: 20,
   },
   drawerLogoutText: {
     fontSize: 15,
     color: "#dc2626",
     fontWeight: "500",
   },
-  // Header Styles
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -631,16 +699,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  menuIcon: {
-    fontSize: 24,
-    color: "#1a1a1a",
-  },
   headerCenter: {
     flex: 1,
     alignItems: "center",
-  },
-  headerRight: {
-    width: 44,
   },
   greeting: {
     fontSize: 14,
@@ -652,26 +713,67 @@ const styles = StyleSheet.create({
     color: "#1a1a1a",
     marginTop: 2,
   },
-  userRole: {
-    fontSize: 12,
+  roleBadge: {
+    backgroundColor: "#4361ee15",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  roleBadgeText: {
+    fontSize: 10,
     color: "#4361ee",
     fontWeight: "600",
-    marginTop: 4,
+  },
+  notificationButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  notificationDot: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#f72585",
   },
   statsContainer: {
     padding: 20,
     paddingTop: 0,
-  },
-  statsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
-    marginBottom: 12,
   },
   statCard: {
-    flex: 1,
-    marginHorizontal: 4,
+    width: "48%",
+    marginBottom: 12,
     padding: 16,
     borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
     alignItems: "center",
   },
   statValue: {
@@ -682,16 +784,30 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     color: "#6c757d",
-    marginTop: 4,
+    marginTop: 2,
   },
   featuresContainer: {
     padding: 20,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#1a1a1a",
-    marginBottom: 16,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: "#6c757d",
+  },
+  seeAllText: {
+    fontSize: 12,
+    color: "#4361ee",
+    fontWeight: "500",
   },
   featuresGrid: {
     flexDirection: "row",
@@ -712,18 +828,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   featureIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 8,
   },
-  featureIconText: {
-    fontSize: 22,
-  },
   featureTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: "#1a1a1a",
     marginBottom: 2,
@@ -732,7 +845,7 @@ const styles = StyleSheet.create({
   featureDescription: {
     fontSize: 10,
     color: "#6c757d",
-    lineHeight: 13,
+    lineHeight: 12,
     textAlign: "center",
   },
   projectsContainer: {
@@ -757,11 +870,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
+  projectTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 8,
+  },
+  projectStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   projectName: {
     fontSize: 16,
     fontWeight: "600",
     color: "#1a1a1a",
     flex: 1,
+  },
+  projectClientContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
   },
   priorityBadge: {
     paddingHorizontal: 10,
@@ -775,7 +905,6 @@ const styles = StyleSheet.create({
   projectClient: {
     fontSize: 13,
     color: "#6c757d",
-    marginBottom: 12,
   },
   projectFooter: {
     flexDirection: "row",
@@ -786,6 +915,7 @@ const styles = StyleSheet.create({
   projectMeta: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
   },
   metaIcon: {
     fontSize: 14,
@@ -807,13 +937,13 @@ const styles = StyleSheet.create({
   progressContainer: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
   },
   progressBar: {
     flex: 1,
     height: 6,
     backgroundColor: "#e9ecef",
     borderRadius: 3,
-    marginRight: 8,
     overflow: "hidden",
   },
   progressFill: {

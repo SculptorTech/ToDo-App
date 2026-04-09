@@ -481,8 +481,8 @@ export default function ManagerHomeScreen({ navigation, route }) {
   };
 
   const handleNotificationPress = () => {
-  navigation.navigate("Notifications", { userId: user?.UserID });
-};
+    navigation.navigate("Notifications", { userId: user?.UserID });
+  };
 
   const managerFeatures = [
     {
@@ -1155,30 +1155,30 @@ export default function ManagerHomeScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-       {/* Header */}
-<View style={styles.header}>
-  <View>
-    <Text style={styles.greeting}>Welcome back,</Text>
-    <Text style={styles.userName}>
-      {user?.FullName || user?.name || "Manager"}
-    </Text>
-    <Text style={styles.userRole}>Project Manager</Text>
-  </View>
-  <View style={styles.headerIcons}>
-    {/* Notifications Button */}
-    <TouchableOpacity 
-      style={styles.notificationIcon}
-      onPress={() => {
-        console.log("🔔 Opening notifications for user:", user?.UserID);
-        navigation.navigate("Notifications", { 
-          userId: user?.UserID 
-        });
-      }}
-    >
-      <Text style={styles.notificationIconText}>🔔</Text>
-    </TouchableOpacity>
-  </View>
-</View>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>Welcome back,</Text>
+            <Text style={styles.userName}>
+              {user?.FullName || user?.name || "Manager"}
+            </Text>
+            <Text style={styles.userRole}>Project Manager</Text>
+          </View>
+          <View style={styles.headerIcons}>
+            {/* Notifications Button */}
+            <TouchableOpacity
+              style={styles.notificationIcon}
+              onPress={() => {
+                console.log("🔔 Opening notifications for user:", user?.UserID);
+                navigation.navigate("Notifications", {
+                  userId: user?.UserID,
+                });
+              }}
+            >
+              <Text style={styles.notificationIconText}>🔔</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         <View style={styles.featuresContainer}>
           <Text style={styles.sectionTitle}>Manager Tools</Text>
